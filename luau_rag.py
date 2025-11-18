@@ -1,0 +1,1658 @@
+# luau_rag.py
+import os
+import glob
+import subprocess
+import tempfile
+import shutil
+import sys
+from sentence_transformers import SentenceTransformer
+import chromadb
+from api_validator import validate_luau_code_blocks
+import requests
+try:
+    from urllib3.util.retry import Retry  # noqa: F401
+    from requests.adapters import HTTPAdapter  # noqa: F401
+except Exception:
+    Retry = None  # noqa: F401
+    HTTPAdapter = None  # noqa: F401
+
+# Configure subprocess encoding
+def configure_subprocess():
+    """Configure subprocess for proper encoding on Windows."""
+    if sys.platform == "win32":
+        # Set default subprocess parameters
+        subprocess.Popen.default_params = {
+            'encoding': 'utf-8',
+            'errors': 'replace',
+            'env': {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+        }
+        
+        # For Windows, also configure subprocess window
+        if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            subprocess.Popen.default_params['startupinfo'] = startupinfo
+
+configure_subprocess()
+
+ROOT = os.path.dirname(__file__)
+CHROMA_PATH = os.path.join(ROOT, "chroma")
+DOCS_PATH = os.path.join(ROOT, "Docs", "markdown")
+MODEL_PATH = os.path.join(ROOT, "models", "deepseek-coder-7b-instruct-v1.5-Q6_K.gguf")
+# Path to llama.cpp binary. If main.exe is in repo root, leave as "main.exe"
+LLAMA_CPP_BIN = os.environ.get("LLAMA_CPP_BIN", "main.exe")  # Using system PATH by default
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mofanke/deepseek-coder:7b-instruct-v1.5-Q4_K_M")
+FORCE_OLLAMA = os.environ.get("FORCE_OLLAMA", "").lower() in ("1", "true", "yes")
+PREFERRED_BACKEND = os.environ.get("PREFERRED_BACKEND", "").lower()  # 'local'|'ollama'|'openai'|'openrouter'|'openai_compat'
+# OpenAI configuration (only used if explicitly selected or preferred)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")  # UI labels it as "gpt5"; override here if desired
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "")
+OPENAI_COMPAT_BASE_URL = os.environ.get("OPENAI_COMPAT_BASE_URL", "")
+OPENAI_COMPAT_API_KEY = os.environ.get("OPENAI_COMPAT_API_KEY", "")
+OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "")
+OPENAI_COMPAT_AUTH_HEADER = os.environ.get("OPENAI_COMPAT_AUTH_HEADER", "Authorization")
+OPENAI_COMPAT_AUTH_SCHEME = os.environ.get("OPENAI_COMPAT_AUTH_SCHEME", "Bearer")
+OPENAI_COMPAT_VERIFY_SSL = os.environ.get("OPENAI_COMPAT_VERIFY_SSL", "1").lower() not in ("0", "false", "no")
+
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+TOP_K = 6
+DESIRED_CONTEXT_TOKENS = 3_000_000  # target tokens user wants (approx)
+CHUNK_PROMPT_SIZE = 12_000_000  # coarse char approximation (~4 chars/token)
+DEFAULT_TEMP = 0.5  # Default temperature for generation
+APPROX_CHARS_PER_TOKEN = 4
+PER_BACKEND_TOKEN_CAP = {
+    'openai': 204_000,
+    'openrouter': 204_000,
+    'openai_compat': 204_000,
+    'ollama': 12_000_000,
+    'llama.cpp': 12_000_000,
+}
+
+def clamp_prompt_for_backend(prompt_text: str, backend: str, model: str = None) -> str:
+    try:
+        b = (backend or '').lower()
+        cap_tokens = PER_BACKEND_TOKEN_CAP.get(b, 500_000)
+        if not model:
+            if b == 'openrouter':
+                model = os.environ.get('OPENROUTER_MODEL')
+            elif b == 'openai':
+                model = os.environ.get('OPENAI_MODEL')
+            elif b == 'openai_compat':
+                model = os.environ.get('OPENAI_COMPAT_MODEL')
+        m = (model or '').lower()
+        if b in ('openai','openrouter','openai_compat') and 'deepseek' in m:
+            cap_tokens = min(cap_tokens, 164_000)
+        cap_chars = max(int(cap_tokens * APPROX_CHARS_PER_TOKEN), 1)
+        if not isinstance(prompt_text, str):
+            return prompt_text
+        if len(prompt_text) <= cap_chars:
+            return prompt_text
+        return prompt_text[:cap_chars]
+    except Exception:
+        return prompt_text
+
+def _make_session(verify: bool = True):
+    """Return a plain requests session without automatic retries.
+    Some providers (e.g., OpenRouter) aggressively rate-limit (429), and
+    automatic retries can make it worse. The caller should handle 429s.
+    """
+    try:
+        s = requests.Session()
+        s.verify = verify
+        return s
+    except Exception:
+        return requests
+
+def get_collection():
+    client = chromadb.PersistentClient(path=CHROMA_PATH)
+    try:
+        col = client.get_collection("luau_docs")
+    except Exception:
+        col = client.create_collection("luau_docs")
+    return col
+
+_EMBEDDER = None
+
+def get_embedder():
+    global _EMBEDDER
+    if _EMBEDDER is None:
+        _EMBEDDER = SentenceTransformer(EMBED_MODEL)
+    return _EMBEDDER
+
+def get_context_and_sources(question, top_k=TOP_K):
+    """Retrieve concatenated context text and a list of source identifiers."""
+    embedder = get_embedder()
+    q_emb = embedder.encode([question])[0]
+    col = get_collection()
+    docs = []
+    metas = []
+    # Retrieve more candidates for hybrid rerank (embedding+BM25+heuristics)
+    n0 = max(int(top_k) * 3, 30)
+    # Primary: embedding query
+    try:
+        res = col.query(query_embeddings=[q_emb], n_results=n0, include=["documents", "metadatas", "distances"])
+        docs_e = res.get("documents", [[]])[0]
+        metas_e = res.get("metadatas", [[]])[0]
+        dists_e = res.get("distances", [[]])[0] if isinstance(res.get("distances", None), list) else [None]*len(docs_e)
+    except Exception:
+        docs_e, metas_e, dists_e = [], [], []
+    # Secondary: text query (brings in lexical matches)
+    try:
+        res2 = col.query(query_texts=[question], n_results=n0, include=["documents", "metadatas"])
+        docs_t = res2.get("documents", [[]])[0]
+        metas_t = res2.get("metadatas", [[]])[0]
+        dists_t = [None]*len(docs_t)
+    except Exception:
+        docs_t, metas_t, dists_t = [], [], []
+    # Merge both candidate pools (dedupe by source+first 24 chars)
+    def key_of(m, d):
+        s = None
+        if isinstance(m, dict):
+            s = m.get("source")
+        return (s or ""), (d or "")[:24]
+    pool = []
+    seen = set()
+    for i in range(len(docs_e)):
+        k = key_of(metas_e[i] if i < len(metas_e) else None, docs_e[i])
+        if k in seen: continue
+        seen.add(k)
+        pool.append((docs_e[i], metas_e[i] if i < len(metas_e) else None, dists_e[i] if i < len(dists_e) else None))
+    for i in range(len(docs_t)):
+        k = key_of(metas_t[i] if i < len(metas_t) else None, docs_t[i])
+        if k in seen: continue
+        seen.add(k)
+        pool.append((docs_t[i], metas_t[i] if i < len(metas_t) else None, dists_t[i] if i < len(dists_t) else None))
+    docs = [p[0] for p in pool]
+    metas = [p[1] for p in pool]
+    dists = [p[2] for p in pool]
+
+    # Lightweight rerank: prefer path relevance + keyword hits
+    try:
+        q = (question or "").lower()
+        terms = [t for t in q.replace("/", " ").replace("_", " ").split() if len(t) > 2]
+        # BM25 rerank on candidates (fallbacks gracefully if lib missing)
+        bm25_scores = None
+        try:
+            from rank_bm25 import BM25Okapi
+            tokenized_corpus = [ (d or "").lower().split() for d in docs ]
+            bm25 = BM25Okapi(tokenized_corpus)
+            bm25_scores = bm25.get_scores(terms)
+        except Exception:
+            pass
+
+        def score_item(doc_text, meta, dist, idx):
+            s = 0.0
+            lt = (doc_text or "").lower()
+            for t in terms:
+                if t in lt:
+                    s += 2.0
+            # Prefer Roblox engine terms strongly
+            try:
+                engine_terms = ['roblox', 'runservice', 'players', 'workspace', 'humanoid', 'server', 'client', 'profilingservice', 'replicatedstorage', 'remotes']
+                if any(et in lt for et in engine_terms):
+                    s += 3.0
+            except Exception:
+                pass
+            src = None
+            if isinstance(meta, dict):
+                src = (meta.get("source") or "").lower()
+            if src:
+                if "reference/engine" in src:
+                    s += 4.0
+                if any(k in src for k in ['api', 'devhub', 'roblox']):
+                    s += 3.0
+                if src.endswith(".md"):
+                    s += 1.0
+            # embedding distance -> score (smaller distance better)
+            if dist is not None:
+                try:
+                    s += max(0.0, 5.0 - float(dist))  # coarse normalization
+                except Exception:
+                    pass
+            # BM25 score contribution
+            if bm25_scores is not None:
+                try:
+                    # normalize bm25 by corpus mean
+                    s += 0.3 * float(bm25_scores[idx])
+                except Exception:
+                    pass
+            return s
+        scored = [ (docs[i], metas[i], score_item(docs[i], metas[i], (dists[i] if i < len(dists) else None), i)) for i in range(len(docs)) ]
+        scored.sort(key=lambda x: x[2], reverse=True)
+        # trim to requested top_k
+        if scored:
+            docs = [x[0] for x in scored[:top_k]]
+            metas = [x[1] for x in scored[:top_k]]
+    except Exception:
+        pass
+
+    combined = "\n\n".join(docs)
+    # trim to avoid extremely long prompts
+    if len(combined) > CHUNK_PROMPT_SIZE:
+        combined = combined[:CHUNK_PROMPT_SIZE] + "\n\n... (truncated) ..."
+
+    # Collect readable source labels (deduped, preserve order)
+    sources = []
+    seen = set()
+    for m in metas:
+        src = None
+        if isinstance(m, dict):
+            src = m.get("source")
+        if src and src not in seen:
+            seen.add(src)
+            sources.append(src)
+
+    return combined, sources
+
+def retrieve_context(question, top_k=TOP_K):
+    """Backward-compatible helper returning only the context text."""
+    text, _ = get_context_and_sources(question, top_k=top_k)
+    return text
+
+
+def lint_luau_snippets(answer_text: str):
+    """Lightweight lint to catch common API mistakes in generated LuaU code.
+    Returns a list of notes with suggested fixes. Does nothing if no issues found.
+    """
+    try:
+        import re
+        notes = []
+        # Find ```lua code blocks
+        blocks = re.findall(r"```lua\s*(.*?)```", answer_text, flags=re.DOTALL | re.IGNORECASE)
+        for b in blocks:
+            # Humanoid:MoveDirection() is invalid; MoveDirection is a property or use Humanoid:Move()
+            if re.search(r"Humanoid\s*:\s*MoveDirection\s*\(", b, flags=re.IGNORECASE):
+                notes.append("Replace Humanoid:MoveDirection() (invalid) with Humanoid:MoveDirection property access or use Humanoid:Move(Vector3, relative) for movement.")
+            # ParticleEmitter property types and usage
+            if re.search(r"Instance\.new\(\"ParticleEmitter\"\)", b):
+                if re.search(r"Acceleration\s*=\s*Vector2", b):
+                    notes.append("ParticleEmitter.Acceleration expects Vector3, not Vector2.")
+                if re.search(r"VelocitySpread\s*=\s*Vector\w+", b):
+                    notes.append("ParticleEmitter.VelocitySpread expects a number (degrees).")
+                if not re.search(r"Attachment", b):
+                    notes.append("Create an Attachment inside the part and parent the ParticleEmitter to it for consistent positioning.")
+                if ('rainbow' in answer_text.lower()) and re.search(r"ColorSequence\.new\s*\(\s*Color3", b) and not re.search(r"ColorSequenceKeypoint", b):
+                    notes.append("For a true rainbow, use multiple ColorSequenceKeypoint entries (red, orange, yellow, green, blue, magenta) rather than a 2-color gradient.")
+        # Cross-check with API dump if available
+        try:
+            root = ROOT
+            api_notes = validate_luau_code_blocks(answer_text, root)
+            notes.extend(api_notes)
+        except Exception:
+            pass
+        return notes
+    except Exception:
+        return []
+
+    ## psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :)
+def sanitize_answer(text: str) -> str:
+    """Normalize model output for UI: enforce lua fences, strip apologies/timeouts, fix luau->lua fences."""
+    try:
+        import re
+        if not text:
+            return text
+        out = text
+        # Remove generic apologies/meta lines anywhere (conservative)
+        out = re.sub(r"^\s*.*\b(as an ai|i (?:do\s*not|don't) have access|cannot browse|no internet|no (?:access|browsing))\b.*$",
+                     "", out, flags=re.IGNORECASE | re.MULTILINE)
+        out = re.sub(r"\bdeepseek\b", "", out, flags=re.IGNORECASE)
+        # Replace ```luau with ```lua
+        out = re.sub(r"```\s*luau", "```lua", out, flags=re.IGNORECASE)
+        # Remove "Answer:" lead-in and any "[via ollama]" noise
+        out = re.sub(r"^\s*answer\s*:\s*", "", out, flags=re.IGNORECASE)
+        out = re.sub(r"\[\s*via\s+ollama\s*\]", "", out, flags=re.IGNORECASE)
+        # Drop timeout lines
+        out = re.sub(r"^.*timed out after \d+ seconds.*$", "", out, flags=re.IGNORECASE | re.MULTILINE)
+        # Remove leading acknowledgments/greetings and invitations
+        lines = out.splitlines()
+        cleaned = []
+        skip_prefix = True
+        for ln in lines:
+            if skip_prefix and re.match(r"^\s*(assistant\s*)?$", ln, flags=re.IGNORECASE):
+                continue
+            # Generic acknowledgments and greetings (even with trailing text)
+            if skip_prefix and re.match(r"^\s*(i\s*understand\b.*|i'?m\s+ready\b.*|i\s+am\s+ready\b.*|as\s+an\s+assistant\b.*|sure[\.!]?.*|okay[\.!]?.*|ok[\.!]?.*|hello\b.*|hi\b.*|hey\b.*)\s*$", ln, flags=re.IGNORECASE):
+                continue
+            # "Please provide your prompt", "What would you like me to (assist|help) you with?", "How can I help?"
+            if skip_prefix and re.search(r"\b(please\s+provide|what\s+would\s+you\s+like\s+me\s+to\s+(assist|help)(\s+you)?\s+with|how\s+can\s+i\s+help|let\s+me\s+know)\b", ln, flags=re.IGNORECASE):
+                continue
+            skip_prefix = False
+            cleaned.append(ln)
+        out = "\n".join(cleaned)
+        # Also remove a trailing standalone invitation line if present at the end
+        out = re.sub(r"\n\s*(what\s+would\s+you\s+like\s+me\s+to\s+(assist|help)(\s+you)?\s+with\??)\s*$", "", out, flags=re.IGNORECASE)
+        # Remove external URLs from References or body (only allow internal file paths)
+        out = re.sub(r"https?://\S+", "", out)
+        # Ensure code fences balanced: if odd number of fences, append closing
+        fence_count = len(re.findall(r"```", out))
+        if fence_count % 2 == 1:
+            out += "\n```\n"
+        return out.strip()
+    except Exception:
+        return text
+
+def select_backend():
+    """Choose backend using environment preferences and availability."""
+    if PREFERRED_BACKEND == 'local':
+        return 'llama.cpp'
+    if PREFERRED_BACKEND == 'ollama':
+        return 'ollama'
+    if PREFERRED_BACKEND == 'openai' and (OPENAI_API_KEY or os.environ.get('OPENAI_API_KEY')):
+        return 'openai'
+    if PREFERRED_BACKEND == 'openrouter' and (OPENROUTER_API_KEY or os.environ.get('OPENROUTER_API_KEY')):
+        return 'openrouter'
+    if os.path.exists(MODEL_PATH) and (os.path.exists(LLAMA_CPP_BIN) or shutil.which(LLAMA_CPP_BIN)):
+        return 'llama.cpp'
+    if shutil.which('ollama'):
+        return 'ollama'
+    if OPENAI_API_KEY:
+        return 'openai'
+    if OPENROUTER_API_KEY:
+        return 'openrouter'
+    return 'llama.cpp'
+
+
+def build_guidelines() -> str:
+    return """You are a careful reading companion. Explain and interpret the supplied documents with empathy and clarity.
+
+Core principles:
+- Prioritize the specific passages provided in Context; do not invent events or dialogue.
+- When the user mentions a page (e.g., page 136), focus on that page range before anything else.
+- Reference document names and page numbers directly in prose (e.g., 'Page 136 of Novel.md highlights...').
+- If a passage is missing from Context, state that plainly and suggest how to locate it.
+- Keep the tone approachable, as if tutoring someone who just asked for help understanding the reading.
+
+Formatting:
+- Respond in Markdown with sections such as Summary, Key Details, and References when helpful.
+- References must cite internal paths and page numbers supplied in Context (e.g., `Docs/book.md (page 136)`).
+- Avoid introductions like 'As an AI' or apologies unless information is genuinely unavailable.
+- Use bullet lists for supporting details when it improves readability.
+"""
+
+
+# Reading reminders injected into the prompt
+TRAINING_SNIPPETS = """Reading Assistant Reminders:
+- Cite document names and page numbers from the Context.
+- Summaries should stay faithful to the provided excerpts.
+- If key details are missing, say so and explain what is needed.
+"""
+
+def _load_training_snippets():
+    return
+
+_load_training_snippets()
+
+# Preload ALL markdown under Docs/ and build a compact catalog to keep in prompt
+DOCS_CATALOG = ''
+DOCS_COUNT = 0
+DOCS_CATALOG_CAP = 100000  # characters to include in prompt for catalog
+
+def _load_docs_catalog():
+    global DOCS_CATALOG, DOCS_COUNT
+    try:
+        import os, re
+        base = os.path.join(ROOT, 'Docs')
+        lines = []
+        count = 0
+        for root, _, files in os.walk(base):
+            for f in files:
+                if not f.lower().endswith('.md'):
+                    continue
+                p = os.path.join(root, f)
+                rel = os.path.relpath(p, ROOT).replace(os.sep, '/')
+                try:
+                    txt = open(p, 'r', encoding='utf-8', errors='ignore').read()
+                except Exception:
+                    continue
+                count += 1
+                # extract up to three headings or first sentence
+                heads = re.findall(r'^#{1,3}\s+(.+)$', txt, flags=re.MULTILINE)
+                summary = '; '.join(heads[:3]) if heads else ''
+                if not summary:
+                    m = re.search(r'\b[^\n]{10,160}[\.!?]', txt)
+                    summary = m.group(0).strip() if m else ''
+                line = f"- {rel}: {summary}".strip()
+                lines.append(line)
+                # stop if catalog too large
+                if sum(len(x)+1 for x in lines) > DOCS_CATALOG_CAP:
+                    break
+            if sum(len(x)+1 for x in lines) > DOCS_CATALOG_CAP:
+                break
+        DOCS_CATALOG = '\n'.join(lines)
+        DOCS_COUNT = count
+    except Exception:
+        DOCS_CATALOG = ''
+        DOCS_COUNT = 0
+
+_load_docs_catalog()
+
+def prepare_prompt(question, plan_mode=False, plan_iters=2, strict_mode=False, retr_top_k: int = TOP_K, pinned_path: str = None, pinned_paths: list = None, debug_no_guidelines: bool = False, pins_only: bool = False):
+    """Retrieve context, optionally plan, and build the final prompt. Returns (prompt, sources, plan_steps)."""
+    ctx = ''
+    ctx_sources = []
+
+    base = build_guidelines() if not debug_no_guidelines else ""
+
+    # Engine anchor: if API dump is loaded, remind model this is Roblox engine work
+    try:
+        from api_validator import get_stats as _api_stats
+        s = _api_stats()
+        if s and s.get('loaded'):
+            base += ("\nENGINE CONTEXT:\n"
+                     "- This is Roblox LuaU in Roblox Studio/Engine, not generic Lua.\n"
+                     "- Prefer RunService (Heartbeat/Stepped/RenderStepped), ProfilingService, task.wait, time(), and Roblox services via game:GetService.\n"
+                     "- Use Instances, Humanoid, Players, Workspace appropriately.\n\n")
+    except Exception:
+        pass
+
+    plan_steps = []
+    if plan_mode:
+        import json as _json
+        def extract_steps(txt: str):
+            try:
+                obj = _json.loads(txt)
+            except Exception:
+                import re
+                m = re.search(r"(\[.*\]|\{.*\})", txt, flags=re.DOTALL)
+                if not m:
+                    return []
+                try:
+                    obj = _json.loads(m.group(1))
+                except Exception:
+                    return []
+            items = []
+            if isinstance(obj, dict) and isinstance(obj.get('steps'), list):
+                items = obj['steps']
+            elif isinstance(obj, list):
+                items = obj
+            steps = []
+            for it in items:
+                if isinstance(it, dict) and 'step' in it:
+                    steps.append(str(it['step']).strip())
+                elif isinstance(it, str):
+                    steps.append(it.strip())
+            return [s for s in steps if s]
+
+        planning_prompt_base = f"You are planning how to answer the user's question using the provided Context.\nOutput ONLY JSON with a 'steps' array of 3-6 short strings. No explanations.\n\nContext:\n{ctx}\n\nQuestion:\n{question}\n"
+
+        backend = select_backend()
+        prev = None
+        for i in range(max(1, int(plan_iters))):
+            if i == 0:
+                ptxt = planning_prompt_base
+            else:
+                ptxt = planning_prompt_base + f"\nRefine the steps given the previous plan: {prev}. Output JSON only.\n"
+            if backend == 'llama.cpp':
+                out_plan, _ = call_llama_cpp(ptxt)
+            else:
+                out_plan, _ = call_ollama(ptxt, temperature=0.2)
+            prev = out_plan or prev
+            steps = extract_steps(out_plan or "")
+            # Fallback: extract leading bullet lines if JSON missing
+            if not steps and out_plan:
+                import re
+                bullets = re.findall(r"^\s*[-*]\s+(.*)$", out_plan, flags=re.MULTILINE)
+                steps = [b.strip() for b in bullets[:6] if b.strip()]
+            if steps:
+                plan_steps = steps
+
+    # Load pinned documents if provided (up to 8)
+    pinned_block = ''
+    pinned_sources = []
+    try:
+        paths = []
+        if isinstance(pinned_paths, list):
+            paths.extend([p for p in pinned_paths if isinstance(p, str)])
+        if pinned_path and pinned_path not in paths:
+            paths.append(pinned_path)
+        paths = paths[:8]
+        if paths:
+            parts = []
+            docs_root = os.path.abspath(os.path.join(ROOT, 'Docs'))
+            for pp in paths:
+                p = os.path.abspath(os.path.join(ROOT, pp.replace('\\', '/')))
+                if p.startswith(docs_root) and p.lower().endswith('.md') and os.path.exists(p):
+                    try:
+                        txt = open(p, 'r', encoding='utf-8', errors='ignore').read()
+                        relp = os.path.relpath(p, ROOT).replace('\\\\','/')
+                        parts.append(f"Pinned Document: {relp}\n" + txt[:20000])
+                        pinned_sources.append(relp)
+                    except Exception:
+                        continue
+            pinned_block = "\n\n".join(parts)
+    except Exception:
+        pinned_block = ''
+        pinned_sources = []
+
+    # Retrieval: normal unless pins_only is enabled
+    if pins_only and pinned_block:
+        ctx = pinned_block
+        ctx_sources = pinned_sources[:]
+        # Do not perform retrieval when pins_only
+    else:
+        ctx, ctx_sources = get_context_and_sources(question, top_k=retr_top_k)
+
+    # Nudge towards Roblox-correct benchmarking if query suggests it
+    try:
+        ql = (question or '').lower()
+        bench_hint = ''
+        if any(k in ql for k in ['benchmark', 'profil', 'perf', 'performance', 'microprofiler']):
+            bench_hint = ("\nROBLOX BENCHMARK HINTS:\n"
+                          "- Use RunService (Heartbeat/Stepped/RenderStepped) for frame-time context; avoid plain tight loops that block.\n"
+                          "- Use os.clock()/time() for measurement, and consider ProfilingService or MicroProfiler.\n"
+                          "- Benchmark realistic workloads (Instances, Humanoids, Services) rather than pure Lua math only.\n\n")
+            base += bench_hint
+    except Exception:
+        pass
+
+    prompt = base + (
+        f"Using the following context, provide a structured response:\n\nContext:\n{ctx}\n\n"
+        f"Training Data:\n{TRAINING_SNIPPETS}\n\n"
+        f"Docs Catalog (headings):\n{DOCS_CATALOG}\n\n"
+        + (f"{pinned_block}\n\n" if (pinned_block and not pins_only) else "") +
+        f"Sources List:\n" + ("\n".join(f"- {s}" for s in ctx_sources) if ctx_sources else "(none)") + "\n\n"
+        f"Question:\n{question}\n\n"
+        "Remember:\n"
+        "- Never put prose inside code fences.\n"
+        "- Always end with a References section.\n"
+        "- Format all code with ```lua blocks and proper indentation.\n"
+        "- Start with minimal, runnable ```lua code before longer prose.\n"
+        "- Add a top-of-code comment stating script type and placement (e.g., LocalScript in StarterPlayerScripts, ModuleScript in ServerScriptService).\n"
+    )
+
+    if plan_steps:
+        prompt += ("\nINTERNAL PLAN (do not include in the final answer):\n" + "\n".join(f"- {s}" for s in plan_steps) +
+                   "\nDo NOT output the plan. Produce only the final Overview/Code/Notes/References sections.\n")
+    elif strict_mode:
+        prompt += ("\nINTERNAL PLAN (do not include in the final answer):\n- Summarize the goal\n- Provide a short example\n- Cite relevant docs\n")
+
+    # Strict mode disabled by design: extensive memory + catalog in context
+
+    return prompt, ctx_sources, plan_steps
+
+def call_llama_cpp(prompt, max_tokens=512):
+    diagnostics = {
+        'tool': 'llama.cpp',
+        'cmd': None,
+        'stdout': None,
+        'stderr': None,
+        'returncode': None,
+        'error': None,
+    }
+
+    # Ensure model exists
+    if not os.path.exists(MODEL_PATH):
+        diagnostics['error'] = f"Model not found at {MODEL_PATH}. Place the .gguf there."
+        return (f"ERROR: Model not found at {MODEL_PATH}. Place the .gguf there.", diagnostics)
+
+    # If a llama.cpp binary is available try to use it
+    if os.path.exists(LLAMA_CPP_BIN) or shutil.which(LLAMA_CPP_BIN):
+        # We write prompt to a temp file to avoid quoting issues for very long prompts
+        prompt_file = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8", suffix=".txt") as tf:
+                tf.write(prompt)
+                tf.flush()
+                prompt_file = tf.name
+
+            cmd = [
+                LLAMA_CPP_BIN,
+                "-m", MODEL_PATH,
+                "-p", open(prompt_file, "r", encoding="utf-8").read(),
+                "-n", str(max_tokens)
+            ]
+
+            diagnostics['cmd'] = cmd
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    timeout=120,
+                    env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+                )
+                diagnostics['stdout'] = (proc.stdout or "").strip()
+                diagnostics['stderr'] = (proc.stderr or "").strip()
+                diagnostics['returncode'] = proc.returncode
+                out = diagnostics['stdout']
+            except Exception:
+                # Fallback: try feeding prompt via stdin
+                try:
+                    diagnostics['cmd'] = [LLAMA_CPP_BIN, "-m", MODEL_PATH, "-n", str(max_tokens)]
+                    proc = subprocess.run(
+                        [LLAMA_CPP_BIN, "-m", MODEL_PATH, "-n", str(max_tokens)],
+                        input=prompt,
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        timeout=120,
+                        env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+                    )
+                    diagnostics['stdout'] = (proc.stdout or "").strip()
+                    diagnostics['stderr'] = (proc.stderr or "").strip()
+                    diagnostics['returncode'] = proc.returncode
+                    out = diagnostics['stdout']
+                except Exception as e2:
+                    diagnostics['error'] = str(e2)
+                    out = f"Failed to run llama.cpp: {e2}\nEnsure llama.cpp binary supports -p or stdin usage and that LLAMA_CPP_BIN path is correct."
+
+        finally:
+            # cleanup temp file
+            try:
+                if prompt_file and os.path.exists(prompt_file):
+                    os.remove(prompt_file)
+            except Exception:
+                pass
+    ## psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :)
+        return (out, diagnostics)
+
+    # If llama.cpp not available, return instruction to use Ollama or let caller handle fallback
+    diagnostics['error'] = f"llama.cpp binary not found at {LLAMA_CPP_BIN}."
+    return (f"llama.cpp binary not found at {LLAMA_CPP_BIN}.\nYou can set LLAMA_CPP_BIN environment variable to the full path of your llama.cpp main executable, or install/build llama.cpp. Alternatively, ensure 'ollama' is installed and available - the system can fallback to Ollama if configured.", diagnostics)
+
+
+def call_ollama(prompt, max_tokens=512, model_name=None, temperature=0.7, gen_options=None):
+    """Call Ollama CLI with improved error handling and response validation."""
+    diagnostics = {
+        'tool': 'ollama',
+        'cmd': None,
+        'stdout': None,
+        'stderr': None,
+        'returncode': None,
+        'error': None,
+    }
+
+    # Use default model if none specified
+    if model_name is None:
+        model_name = OLLAMA_MODEL
+
+    # Check if Ollama is installed
+    ollama_path = shutil.which("ollama")
+    if not ollama_path:
+        diagnostics['error'] = "ERROR: Ollama CLI not found on PATH. Install Ollama or provide llama.cpp."
+        return (diagnostics['error'], diagnostics)
+
+    def check_model_availability():
+        """Check if the model is available in Ollama."""
+        try:
+            check_proc = subprocess.run(
+                [ollama_path, "list"],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=10,
+                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+            )
+            # also log for diagnostics
+            stdout = (check_proc.stdout or "").strip()
+            stderr = (check_proc.stderr or "").strip()
+            # write a small diagnostic file
+            try:
+                with open(os.path.join(ROOT, "logs", "ollama_list_debug.txt"), "w", encoding="utf-8") as df:
+                    df.write("OLLAMA LIST STDOUT:\n")
+                    df.write(stdout + "\n\n")
+                    df.write("OLLAMA LIST STDERR:\n")
+                    df.write(stderr + "\n")
+            except Exception:
+                pass
+            return model_name.lower() in stdout.lower()
+        except Exception:
+            return False
+
+    # Validate model availability
+    if not check_model_availability():
+        # Attempt to pull the model automatically (useful for UI startup)
+        try:
+            pull_proc = subprocess.run(
+                [ollama_path, "pull", model_name],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=600,
+                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+            )
+            # If pull succeeded (returncode 0) re-check availability
+            if pull_proc.returncode == 0:
+                if check_model_availability():
+                    # proceed
+                    pass
+                else:
+                    diagnostics['error'] = f"Model '{model_name}' not found after pulling."
+                    return (f"Model '{model_name}' not found after pulling. Please run: ollama pull {model_name}", diagnostics)
+            else:
+                # Pull failed; surface stderr to user
+                stderr = (pull_proc.stderr or "").strip()
+                diagnostics['stderr'] = stderr
+                diagnostics['returncode'] = pull_proc.returncode
+                diagnostics['error'] = f"Failed to pull model '{model_name}': {stderr}"
+                return (f"Failed to pull model '{model_name}': {stderr}\nPlease run: ollama pull {model_name}", diagnostics)
+        except subprocess.TimeoutExpired:
+            diagnostics['error'] = 'timeout'
+            return (f"Model pull timed out for '{model_name}'. Please run: ollama pull {model_name}", diagnostics)
+        except Exception as e:
+            diagnostics['error'] = str(e)
+            return (f"Failed to pull model '{model_name}': {e}\nPlease run: ollama pull {model_name}", diagnostics)
+
+    try:
+        # Try running with --temperature flag first (newer Ollama versions)
+        cmd = [ollama_path, "run", model_name, "--temperature", str(temperature)]
+        if isinstance(gen_options, dict):
+            if gen_options.get("top_k") is not None:
+                cmd += ["--top-k", str(gen_options.get("top_k"))]
+            if gen_options.get("top_p") is not None:
+                cmd += ["--top-p", str(gen_options.get("top_p"))]
+            if gen_options.get("repeat_penalty") is not None:
+                cmd += ["--repeat-penalty", str(gen_options.get("repeat_penalty"))]
+            if gen_options.get("frequency_penalty") is not None:
+                cmd += ["--frequency-penalty", str(gen_options.get("frequency_penalty"))]
+        diagnostics['cmd'] = cmd
+
+        proc = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=120,
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+        )
+
+        # Process the output
+        diagnostics['stdout'] = (proc.stdout or "").strip()
+        diagnostics['stderr'] = (proc.stderr or "").strip()
+        diagnostics['returncode'] = proc.returncode
+        out = diagnostics['stdout']
+        err = diagnostics['stderr']
+
+        # If there's an error, write diagnostics to file for debugging
+        if proc.returncode != 0 or err:
+            try:
+                with open(os.path.join(ROOT, "logs", "ollama_run_debug.txt"), "a", encoding="utf-8") as df:
+                    df.write(f"CMD: {cmd}\nRETURN: {proc.returncode}\nSTDOUT:\n{out}\nSTDERR:\n{err}\n----\n")
+            except Exception:
+                pass
+
+        # If the CLI complains about an unknown flag (older Ollama), retry without the flag
+        if err and "unknown flag" in err.lower():
+            # Retry without temperature flag (older syntax)
+            cmd2 = [ollama_path, "run", model_name]
+            proc2 = subprocess.run(
+                cmd2,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=120,
+                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+            )
+            out2 = (proc2.stdout or "").strip()
+            err2 = (proc2.stderr or "").strip()
+            if proc2.returncode != 0 or err2:
+                try:
+                    with open(os.path.join(ROOT, "logs", "ollama_run_debug.txt"), "a", encoding="utf-8") as df:
+                        df.write(f"CMD: {cmd2}\nRETURN: {proc2.returncode}\nSTDOUT:\n{out2}\nSTDERR:\n{err2}\n----\n")
+                except Exception:
+                    pass
+            if proc2.returncode == 0 and out2:
+                diagnostics['cmd'] = cmd2
+                diagnostics['stdout'] = out2
+                diagnostics['stderr'] = err2
+                diagnostics['returncode'] = proc2.returncode
+                return (out2, diagnostics)
+            elif err2:
+                diagnostics['error'] = err2
+                diagnostics['cmd'] = cmd2
+                diagnostics['stdout'] = out2
+                diagnostics['stderr'] = err2
+                diagnostics['returncode'] = proc2.returncode
+                return (f"Ollama error: {err2}", diagnostics)
+            else:
+                diagnostics['error'] = 'Ollama ran but produced no output.'
+                return ("Ollama ran but produced no output. Please try again.", diagnostics)
+
+        # Handle different cases for the first attempt
+        if proc.returncode == 0 and out:
+            return (out, diagnostics)
+        elif err:
+            diagnostics['error'] = err
+            return (f"Ollama error: {err}", diagnostics)
+        else:
+            diagnostics['error'] = 'Ollama ran but produced no output.'
+            return ("Ollama ran but produced no output. Please try again.", diagnostics)
+
+    except subprocess.TimeoutExpired:
+        diagnostics['error'] = 'timeout'
+        return ("Ollama request timed out after 120 seconds. Please try again.", diagnostics)
+    except Exception as e:
+        diagnostics['error'] = str(e)
+        return (f"Failed to run Ollama: {str(e)}\nEnsure Ollama service is running: ollama serve", diagnostics)
+
+def call_ollama_stream(prompt, model_name=None, temperature=0.7, gen_options=None):
+    """Yield output from Ollama incrementally (best-effort)."""
+    ollama_path = shutil.which('ollama')
+    if not ollama_path:
+        yield ""
+        return
+    if model_name is None:
+        model_name = OLLAMA_MODEL
+    cmd = [ollama_path, "run", model_name, "--temperature", str(temperature)]
+    if isinstance(gen_options, dict):
+        if gen_options.get("top_k") is not None:
+            cmd += ["--top-k", str(gen_options.get("top_k"))]
+        if gen_options.get("top_p") is not None:
+            cmd += ["--top-p", str(gen_options.get("top_p"))]
+        if gen_options.get("repeat_penalty") is not None:
+            cmd += ["--repeat-penalty", str(gen_options.get("repeat_penalty"))]
+        if gen_options.get("frequency_penalty") is not None:
+            cmd += ["--frequency-penalty", str(gen_options.get("frequency_penalty"))]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+        )
+        try:
+            proc.stdin.write(prompt)
+            proc.stdin.close()
+        except Exception:
+            pass
+        # Read line by line (Ollama usually outputs buffered lines)
+        for line in proc.stdout:
+            if not line:
+                break
+            yield line
+    except Exception:
+        yield ""
+
+def call_openai(prompt: str, temperature: float = 0.7, api_key: str = None, model: str = None, max_tokens: int = 800):
+    """Call OpenAI Chat Completions API and return (text, diagnostics)."""
+    diagnostics = {'tool': 'openai', 'endpoint': 'v1/chat/completions', 'model': model or OPENAI_MODEL}
+    key = api_key or OPENAI_API_KEY or os.environ.get('OPENAI_API_KEY', '')
+    mdl = model or OPENAI_MODEL
+    if not key:
+        return ("OpenAI API key missing.", {**diagnostics, 'error': 'missing_api_key'})
+    try:
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        body = {
+            "model": mdl,
+            "temperature": float(temperature),
+            "messages": [
+                {"role": "system", "content": "You are a precise LuaU/Roblox engineer. Follow the user's prompt strictly."},
+                {"role": "user", "content": prompt}
+            ]
+        }
+        resp = requests.post("https://api.openai.com/v1/chat/completions", json=body, headers=headers, timeout=120)
+        diagnostics['status_code'] = resp.status_code
+        if resp.status_code != 200:
+            try:
+                with open(os.path.join(ROOT, 'logs', 'openai_debug.txt'), 'a', encoding='utf-8') as df:
+                    df.write(f"STATUS: {resp.status_code}\nBODY: {resp.text}\n---\n")
+            except Exception:
+                pass
+            return (f"OpenAI error: {resp.status_code} {resp.text}", {**diagnostics, 'error': resp.text})
+        data = resp.json()
+        txt = (data.get('choices') or [{}])[0].get('message', {}).get('content', '')
+        return (txt or '', diagnostics)
+    except requests.Timeout:
+        return ("OpenAI request timed out.", {**diagnostics, 'error': 'timeout'})
+    except Exception as e:
+        return (f"OpenAI error: {e}", {**diagnostics, 'error': str(e)})
+
+
+def call_openai_stream(prompt: str, temperature: float = 0.7, api_key: str = None, model: str = None):
+    """Yield chunks from OpenAI stream (best effort)."""
+    key = api_key or OPENAI_API_KEY or os.environ.get('OPENAI_API_KEY', '')
+    mdl = model or OPENAI_MODEL
+    if not key:
+        yield ""
+
+def call_openrouter(prompt: str, temperature: float = 0.7, api_key: str = None, model: str = None, max_tokens: int = 800):
+    """Call OpenRouter Chat Completions and return (text, diagnostics)."""
+    diagnostics = {'tool': 'openrouter', 'endpoint': 'api/v1/chat/completions', 'model': model or OPENROUTER_MODEL}
+    key = api_key or OPENROUTER_API_KEY or os.environ.get('OPENROUTER_API_KEY', '')
+    mdl = model or OPENROUTER_MODEL
+    if not key:
+        return ("OpenRouter API key missing.", {**diagnostics, 'error': 'missing_api_key'})
+    try:
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+            "Connection": "close",
+            "User-Agent": "luau-rag/1.0",
+        }
+        body = {
+            "model": mdl,
+            "temperature": float(temperature),
+            "messages": [
+                {"role": "system", "content": "You are a precise LuaU/Roblox engineer. Follow the user's prompt strictly."},
+                {"role": "user", "content": prompt}
+            ]
+        }
+        verify_flag = (os.environ.get('OPENROUTER_VERIFY_SSL', '1').lower() not in ('0','false','no'))
+        sess = _make_session(verify=verify_flag)
+        resp = sess.post("https://openrouter.ai/api/v1/chat/completions", json=body, headers=headers, timeout=120)
+        diagnostics['status_code'] = resp.status_code
+        if resp.status_code != 200:
+            return (f"OpenRouter error: {resp.status_code} {resp.text}", {**diagnostics, 'error': resp.text})
+        data = resp.json()
+        txt = (data.get('choices') or [{}])[0].get('message', {}).get('content', '')
+        return (txt or '', diagnostics)
+    except requests.Timeout:
+        return ("OpenRouter request timed out.", {**diagnostics, 'error': 'timeout'})
+    except Exception as e:
+        return (f"OpenRouter error: {e}", {**diagnostics, 'error': str(e)})
+
+def call_openrouter_stream(prompt: str, temperature: float = 0.7, api_key: str = None, model: str = None):
+    key = api_key or OPENROUTER_API_KEY or os.environ.get('OPENROUTER_API_KEY', '')
+    mdl = model or OPENROUTER_MODEL
+    if not key:
+        yield ""
+        return
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Connection": "close",
+        "User-Agent": "luau-rag/1.0",
+    }
+    body = {
+        "model": mdl,
+        "temperature": float(temperature),
+        "stream": True,
+        "messages": [
+            {"role": "system", "content": "You are a precise LuaU/Roblox engineer. Follow the user's prompt strictly."},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    try:
+        verify_flag = (os.environ.get('OPENROUTER_VERIFY_SSL', '1').lower() not in ('0','false','no'))
+        sess = _make_session(verify=verify_flag)
+        with sess.post("https://openrouter.ai/api/v1/chat/completions", json=body, headers=headers, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            for line in r.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                if line.startswith('data: '):
+                    line = line[len('data: '):].strip()
+                if line == '[DONE]':
+                    break
+                try:
+                    import json as _json
+                    obj = _json.loads(line)
+                    delta = ((obj.get('choices') or [{}])[0].get('delta') or {}).get('content', '')
+                    if delta:
+                        yield delta
+                except Exception:
+                    continue
+    except Exception:
+        yield ""
+        return
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    body = {
+        "model": mdl,
+        "temperature": float(temperature),
+        "stream": True,
+        "messages": [
+            {"role": "system", "content": "You are a precise LuaU/Roblox engineer. Follow the user's prompt strictly."},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    try:
+        with requests.post("https://api.openai.com/v1/chat/completions", json=body, headers=headers, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            for line in r.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                if line.startswith('data: '):
+                    line = line[len('data: '):].strip()
+                if line == '[DONE]':
+                    break
+                try:
+                    obj = None
+                    import json as _json
+                    obj = _json.loads(line)
+                    delta = ((obj.get('choices') or [{}])[0].get('delta') or {}).get('content', '')
+                    if delta:
+                        yield delta
+                except Exception:
+                    continue
+    except Exception:
+        yield ""
+
+
+def _build_openai_compat_endpoint(base_url: str) -> str:
+    if not base_url:
+        return ""
+    base = base_url.strip()
+    if not base:
+        return ""
+    if base.endswith("/chat/completions"):
+        return base
+    return f"{base.rstrip('/')}/chat/completions"
+
+
+def call_openai_compat(prompt: str, temperature: float = 0.7, api_key: str = None, model: str = None,
+                       base_url: str = None, max_tokens: int = 800):
+    """Call a generic OpenAI-compatible endpoint and return (text, diagnostics)."""
+    diagnostics = {
+        'tool': 'openai_compat',
+        'model': model or OPENAI_COMPAT_MODEL,
+        'base_url': base_url or OPENAI_COMPAT_BASE_URL,
+    }
+    key = api_key or OPENAI_COMPAT_API_KEY or os.environ.get('OPENAI_COMPAT_API_KEY', '')
+    mdl = model or OPENAI_COMPAT_MODEL
+    endpoint = _build_openai_compat_endpoint(base_url or OPENAI_COMPAT_BASE_URL or os.environ.get('OPENAI_COMPAT_BASE_URL', ''))
+    if not key:
+        return ("OpenAI-compatible API key missing.", {**diagnostics, 'error': 'missing_api_key'})
+    if not endpoint:
+        return ("OpenAI-compatible base URL missing.", {**diagnostics, 'error': 'missing_base_url'})
+    diagnostics['endpoint'] = endpoint
+    try:
+        headers = {"Content-Type": "application/json"}
+        header_name = (OPENAI_COMPAT_AUTH_HEADER or "Authorization").strip()
+        auth_scheme = (OPENAI_COMPAT_AUTH_SCHEME or "Bearer").strip()
+        if header_name:
+            if auth_scheme:
+                headers[header_name] = f"{auth_scheme} {key}".strip()
+            else:
+                headers[header_name] = key
+        body = {
+            "model": mdl,
+            "temperature": float(temperature),
+            "messages": [
+                {"role": "system", "content": "You are a precise LuaU/Roblox engineer. Follow the user's prompt strictly."},
+                {"role": "user", "content": prompt}
+            ]
+        }
+        if max_tokens:
+            body["max_tokens"] = int(max_tokens)
+        sess = _make_session(verify=OPENAI_COMPAT_VERIFY_SSL)
+        resp = sess.post(endpoint, json=body, headers=headers, timeout=120)
+        diagnostics['status_code'] = getattr(resp, 'status_code', None)
+        if getattr(resp, 'status_code', 200) != 200:
+            return (f"OpenAI-compatible error: {resp.status_code} {resp.text}", {**diagnostics, 'error': resp.text})
+        data = resp.json()
+        txt = (data.get('choices') or [{}])[0].get('message', {}).get('content', '')
+        return (txt or '', diagnostics)
+    except requests.Timeout:
+        return ("OpenAI-compatible request timed out.", {**diagnostics, 'error': 'timeout'})
+    except Exception as e:
+        return (f"OpenAI-compatible error: {e}", {**diagnostics, 'error': str(e)})
+
+
+def ask(
+    question,
+    temperature=0.7,
+    plan_mode=False,
+    review_mode=False,
+    plan_iters=2,
+    strict_mode=False,
+    gen_options=None,
+    retr_top_k: int = TOP_K,
+    pinned_path: str = None,
+    pinned_paths: list = None,
+    pins_only: bool = False,
+    backend_override: str = None,
+    openai_key: str = None,
+    openrouter_key: str = None,
+    openrouter_model: str = None,
+    openai_compat_key: str = None,
+    openai_compat_model: str = None,
+    openai_compat_base_url: str = None,
+):
+    """Generate a response using either llama.cpp or Ollama.
+    plan_mode: include a concise plan section at the top (3-5 bullets).
+    review_mode: append a short quality check section based on the context.
+    """
+    # Get relevant documentation context and sources (or pins-only)
+    ctx = ''
+    ctx_sources = []
+    
+    # Construct the prompt and pinned document blocks
+    # Load pinned documents if provided (up to 8)
+    pinned_block = ''
+    pinned_sources = []
+    try:
+        paths = []
+        if isinstance(pinned_paths, list):
+            paths.extend([p for p in pinned_paths if isinstance(p, str)])
+        if pinned_path and pinned_path not in paths:
+            paths.append(pinned_path)
+        paths = paths[:8]
+        if paths:
+            parts = []
+            docs_root = os.path.abspath(os.path.join(ROOT, 'Docs'))
+            for pp in paths:
+                p = os.path.abspath(os.path.join(ROOT, pp.replace('\\', '/')))
+                if p.startswith(docs_root) and p.lower().endswith('.md') and os.path.exists(p):
+                    try:
+                        txt = open(p, 'r', encoding='utf-8', errors='ignore').read()
+                        relp = os.path.relpath(p, ROOT).replace('\\\\','/')
+                        parts.append(f"Pinned Document: {relp}\n" + txt[:20000])
+                        pinned_sources.append(relp)
+                    except Exception:
+                        continue
+            pinned_block = "\n\n".join(parts)
+    except Exception:
+        pinned_block = ''
+        pinned_sources = []
+
+    if pins_only and pinned_block:
+        # Use only pinned content as context
+        ctx = pinned_block
+        ctx_sources = pinned_sources[:]
+    else:
+        ctx, ctx_sources = get_context_and_sources(question, top_k=retr_top_k)
+
+    prompt = build_guidelines() + f"""
+
+Using the following context, provide a structured response:
+
+Context:
+{ctx}
+
+Training Data:
+{TRAINING_SNIPPETS}
+
+Docs Catalog (headings):
+{DOCS_CATALOG}
+
+Sources List:
+""" + ("\n".join(f"- {s}" for s in ctx_sources) if ctx_sources else "(none)") + f"""
+
+""" + (f"{pinned_block}\n" if (pinned_block and not pins_only) else "") + f"""
+
+Question:
+{question}
+
+Remember:
+- Never put prose inside code fences.
+- Always end with a References section.
+- Format all code with ```lua blocks and proper indentation.
+- If asked to create or implement something, start with minimal ```lua code blocks before longer prose.
+"""
+
+    # placeholder; filled after backend selection
+    plan_steps = []
+    ## psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :)
+    # Strict mode: tighten behavior
+    if strict_mode:
+        prompt += ("\nSTRICT MODE:\n- Keep the response concise and strictly relevant.\n"
+                   "- If Context support is weak or missing, state that and stop.\n"
+                   "- Always include References using provided sources.\n")
+    
+
+    def has_openai_compat_credentials():
+        key_present = (openai_compat_key or OPENAI_COMPAT_API_KEY or os.environ.get('OPENAI_COMPAT_API_KEY'))
+        model_present = (openai_compat_model or OPENAI_COMPAT_MODEL or os.environ.get('OPENAI_COMPAT_MODEL'))
+        url_present = (openai_compat_base_url or OPENAI_COMPAT_BASE_URL or os.environ.get('OPENAI_COMPAT_BASE_URL'))
+        return bool(key_present and model_present and url_present)
+
+    def choose_backend():
+        """Choose backend: prefer PREFERRED_BACKEND/env overrides, then local gguf (llama.cpp), then Ollama, then hosted keys."""
+        # explicit UI override
+        bo = (backend_override or '').lower()
+        if bo == 'openai':
+            return 'openai'
+        if bo == 'openrouter':
+            return 'openrouter'
+        if bo in ('openai_compat', 'custom') and has_openai_compat_credentials():
+            return 'openai_compat'
+        if bo == 'ollama':
+            return 'ollama'
+        if bo == 'local':
+            return 'llama.cpp'
+
+        # env preference
+        if PREFERRED_BACKEND == 'local':
+            return 'llama.cpp'
+        if PREFERRED_BACKEND == 'ollama':
+            return 'ollama'
+        if PREFERRED_BACKEND == 'openai' and (OPENAI_API_KEY or openai_key or os.environ.get('OPENAI_API_KEY')):
+            return 'openai'
+        if PREFERRED_BACKEND == 'openrouter' and (OPENROUTER_API_KEY or openrouter_key or os.environ.get('OPENROUTER_API_KEY')):
+            return 'openrouter'
+        if PREFERRED_BACKEND == 'openai_compat' and has_openai_compat_credentials():
+            return 'openai_compat'
+
+        # prefer local if model file exists and llama.cpp binary seems available
+        if os.path.exists(MODEL_PATH) and (os.path.exists(LLAMA_CPP_BIN) or shutil.which(LLAMA_CPP_BIN)):
+            return 'llama.cpp'
+
+        # otherwise prefer Ollama if available
+        if shutil.which('ollama'):
+            return 'ollama'
+
+        # fallback prefer hosted if keys present, else llama.cpp
+        if OPENAI_API_KEY or openai_key or os.environ.get('OPENAI_API_KEY'):
+            return 'openai'
+        if OPENROUTER_API_KEY or openrouter_key or os.environ.get('OPENROUTER_API_KEY'):
+            return 'openrouter'
+        if has_openai_compat_credentials():
+            return 'openai_compat'
+        return 'llama.cpp'
+
+    backend = choose_backend()
+
+    # Internal planning loop (not included in final answer). Run using selected backend.
+    if plan_mode:
+        import json as _json
+
+        def extract_steps(txt):
+            try:
+                obj = _json.loads(txt)
+            except Exception:
+                import re
+                m = re.search(r"(\[.*\]|\{.*\})", txt, flags=re.DOTALL)
+                if not m:
+                    return []
+                try:
+                    obj = _json.loads(m.group(1))
+                except Exception:
+                    return []
+            steps = []
+            if isinstance(obj, dict) and 'steps' in obj and isinstance(obj['steps'], list):
+                items = obj['steps']
+            elif isinstance(obj, list):
+                items = obj
+            else:
+                items = []
+            for it in items:
+                if isinstance(it, dict) and 'step' in it:
+                    steps.append(str(it['step']).strip())
+                elif isinstance(it, str):
+                    steps.append(it.strip())
+            return [s for s in steps if s]
+
+        planning_prompt_base = f"""You are planning how to answer the user's question using the provided Context.
+Output ONLY JSON with a 'steps' array of 3-6 short strings. No explanations.
+
+Context:\n{ctx}\n\nQuestion:\n{question}\n"""
+
+        prev = None
+        for i in range(max(1, int(plan_iters))):
+            if i == 0:
+                ptxt = planning_prompt_base
+            else:
+                ptxt = planning_prompt_base + f"\nRefine the steps given the previous plan: {prev}. Output JSON only.\n"
+
+        if backend == 'llama.cpp':
+            out_plan, _ = call_llama_cpp(ptxt)
+        elif backend == 'ollama':
+            out_plan, _ = call_ollama(ptxt, temperature=0.2, gen_options=gen_options)
+        elif backend == 'openrouter':
+            # Block Qwen temporarily
+            if (openrouter_model or OPENROUTER_MODEL or '').lower().find('qwen') != -1:
+                out_plan = ""
+            else:
+                out_plan, _ = call_openrouter(ptxt, temperature=0.2, api_key=openrouter_key, model=openrouter_model)
+        elif backend == 'openai_compat':
+            out_plan, _ = call_openai_compat(
+                ptxt,
+                temperature=0.2,
+                api_key=openai_compat_key,
+                model=openai_compat_model,
+                base_url=openai_compat_base_url,
+            )
+        else:
+            out_plan, _ = call_openai(ptxt, temperature=0.2, api_key=openai_key)
+            prev = out_plan or prev
+            steps = extract_steps(out_plan or "")
+            if steps:
+                plan_steps = steps
+
+        if plan_steps:
+            prompt += ("\nINTERNAL PLAN (do not include in the final answer):\n" + "\n".join(f"- {s}" for s in plan_steps) +
+                       "\nDo NOT output the plan. Produce only the final Overview/Code/Notes/References sections.\n")
+        else:
+            # Fallback guard: add a minimal internal hint to still structure the answer
+            prompt += ("\nINTERNAL PLAN (do not include in the final answer):\n- Summarize the goal\n- Provide a short example\n- Cite relevant docs\n")
+
+    # Clamp prompt for backend capacity
+    # For hosted backends, also pass the model to enforce Deepseek 164k cap
+    model_hint = None
+    if backend == 'openrouter':
+        model_hint = openrouter_model or OPENROUTER_MODEL
+    elif backend == 'openai':
+        model_hint = OPENAI_MODEL
+    elif backend == 'openai_compat':
+        model_hint = openai_compat_model or OPENAI_COMPAT_MODEL
+    prompt = clamp_prompt_for_backend(prompt, backend, model_hint)
+
+    if backend == 'llama.cpp':
+        out, diag = call_llama_cpp(prompt)
+        # If llama.cpp indicates missing model or binary problems, try Ollama as fallback
+        if (not out) or any(s in str(out) for s in ("ERROR: Model not found", "llama.cpp binary not found", "Failed to run llama.cpp:")):
+            if shutil.which('ollama'):
+                out2, diag2 = call_ollama(prompt, temperature=temperature, gen_options=gen_options)
+                merged = {'preferred': 'ollama', 'llama': diag, 'ollama': diag2}
+                # Optional review step
+                if review_mode and out2:
+                    review_prompt = f"""You are a strict reviewer. In 3-5 short bullets, assess the following draft for:
+- factual correctness vs Context
+- missing/weak references
+- security/performance caveats
+If no issues, say 'Looks good'.
+
+Context:\n{ctx}\n\nQuestion:\n{question}\n\nDraft Answer:\n{out2}\n"""
+                    rev_out, _ = call_ollama(review_prompt, temperature=0.3)
+                    if rev_out and ('timed out' not in rev_out.lower()) and ('error' not in rev_out.lower()):
+                        out2 = f"{out2}\n\nQuality Check:\n{rev_out.strip()}"
+                        merged['review'] = rev_out.strip()
+                # Ensure references section exists
+                try:
+                    if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out2 or "").lower():
+                        refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                        out2 = f"{out2}\n\nReferences:\n{refs}"
+                except Exception:
+                    pass
+                return ("ollama", out2, merged)
+        # Optional review for llama.cpp primary path
+        if review_mode and out:
+            review_prompt = f"""You are a strict reviewer. In 3-5 short bullets, assess the following draft for:
+- factual correctness vs Context
+- missing/weak references
+- security/performance caveats
+If no issues, say 'Looks good'.
+
+Context:\n{ctx}\n\nQuestion:\n{question}\n\nDraft Answer:\n{out}\n"""
+            rev_out, _ = call_llama_cpp(review_prompt)
+            if rev_out and ('timed out' not in rev_out.lower()) and ('error' not in rev_out.lower()):
+                out = f"{out}\n\nQuality Check:\n{rev_out.strip()}"
+                try:
+                    if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                        refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                        out = f"{out}\n\nReferences:\n{refs}"
+                except Exception:
+                    pass
+                return ("llama.cpp", out, {'llama': diag, 'sources': ctx_sources, 'review': rev_out.strip()})
+        extra = {'llama': diag, 'sources': ctx_sources}
+        if plan_steps:
+            extra['plan_steps'] = plan_steps
+        try:
+            if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                out = f"{out}\n\nReferences:\n{refs}"
+        except Exception:
+            pass
+        return ("llama.cpp", out, extra)
+
+        if backend == 'openai':
+            out, diag = call_openai(prompt, temperature=temperature, api_key=openai_key)
+            if review_mode and out:
+                review_prompt = f"""You are a strict reviewer. In 3-5 short bullets, assess the following draft for:
+- factual correctness vs Context
+- missing/weak references
+- security/performance caveats
+If no issues, say 'Looks good'.
+
+Context:\n{ctx}\n\nQuestion:\n{question}\n\nDraft Answer:\n{out}\n"""
+                rev_out, _ = call_openai(review_prompt, temperature=0.3, api_key=openai_key)
+                if rev_out:
+                    out = f"{out}\n\nQuality Check:\n{rev_out.strip()}"
+                    try:
+                        if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                            refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                            out = f"{out}\n\nReferences:\n{refs}"
+                    except Exception:
+                        pass
+                    return ("openai", sanitize_answer(out), {'openai': diag, 'sources': ctx_sources, 'review': rev_out.strip()})
+            extra = {'openai': diag, 'sources': ctx_sources}
+            if plan_steps:
+                extra['plan_steps'] = plan_steps
+            try:
+                if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                    refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                    out = f"{out}\n\nReferences:\n{refs}"
+            except Exception:
+                pass
+            # Lint + sanitize (only when review_mode)
+            if review_mode:
+                try:
+                    lint_notes = lint_luau_snippets(out or "")
+                    if lint_notes:
+                        out = f"{out}\n\nNotes:\n- " + "\n- ".join(lint_notes[:3])
+                except Exception:
+                    pass
+            out = sanitize_answer(out)
+            return ("openai", out, extra)
+
+        if backend == 'openai_compat':
+            out, diag = call_openai_compat(
+                prompt,
+                temperature=temperature,
+                api_key=openai_compat_key,
+                model=openai_compat_model,
+                base_url=openai_compat_base_url,
+            )
+            if review_mode and out:
+                review_prompt = f"""You are a strict reviewer. In 3-5 short bullets, assess the following draft for:
+- factual correctness vs Context
+- missing/weak references
+- security/performance caveats
+If no issues, say 'Looks good'.
+
+Context:\n{ctx}\n\nQuestion:\n{question}\n\nDraft Answer:\n{out}\n"""
+                rev_out, _ = call_openai_compat(
+                    review_prompt,
+                    temperature=0.3,
+                    api_key=openai_compat_key,
+                    model=openai_compat_model,
+                    base_url=openai_compat_base_url,
+                )
+                if rev_out:
+                    out = f"{out}\n\nQuality Check:\n{rev_out.strip()}"
+                    try:
+                        if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                            refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                            out = f"{out}\n\nReferences:\n{refs}"
+                    except Exception:
+                        pass
+                    return ("openai_compat", sanitize_answer(out), {'openai_compat': diag, 'sources': ctx_sources, 'review': rev_out.strip()})
+            extra = {'openai_compat': diag, 'sources': ctx_sources}
+            if plan_steps:
+                extra['plan_steps'] = plan_steps
+            try:
+                if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                    refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                    out = f"{out}\n\nReferences:\n{refs}"
+            except Exception:
+                pass
+            if review_mode:
+                try:
+                    lint_notes = lint_luau_snippets(out or "")
+                    if lint_notes:
+                        out = f"{out}\n\nNotes:\n- " + "\n- ".join(lint_notes[:3])
+                except Exception:
+                    pass
+            out = sanitize_answer(out)
+            return ("openai_compat", out, extra)
+
+        if backend == 'openrouter':
+            # Block Qwen temporarily
+            if (openrouter_model or OPENROUTER_MODEL or '').lower().find('qwen') != -1:
+                out = "Selected OpenRouter Qwen model is disabled for now. Please choose another model."
+                diag = {'error': 'qwen_blocked'}
+            else:
+                out, diag = call_openrouter(prompt, temperature=temperature, api_key=openrouter_key, model=openrouter_model)
+            if review_mode and out:
+                review_prompt = f"""You are a strict reviewer. In 3-5 short bullets, assess the following draft for:
+- factual correctness vs Context
+- missing/weak references
+- security/performance caveats
+If no issues, say 'Looks good'.
+    ## psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :)
+Context:\n{ctx}\n\nQuestion:\n{question}\n\nDraft Answer:\n{out}\n"""
+                rev_out, _ = call_openrouter(review_prompt, temperature=0.3, api_key=openrouter_key, model=openrouter_model)
+                if rev_out:
+                    out = f"{out}\n\nQuality Check:\n{rev_out.strip()}"
+                    try:
+                        if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                            refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                            out = f"{out}\n\nReferences:\n{refs}"
+                    except Exception:
+                        pass
+                    return ("openrouter", sanitize_answer(out), {'openrouter': diag, 'sources': ctx_sources, 'review': rev_out.strip()})
+            extra = {'openrouter': diag, 'sources': ctx_sources}
+            if plan_steps:
+                extra['plan_steps'] = plan_steps
+            try:
+                if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                    refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                    out = f"{out}\n\nReferences:\n{refs}"
+            except Exception:
+                pass
+            if review_mode:
+                try:
+                    lint_notes = lint_luau_snippets(out or "")
+                    if lint_notes:
+                        out = f"{out}\n\nNotes:\n- " + "\n- ".join(lint_notes[:3])
+                except Exception:
+                    pass
+            out = sanitize_answer(out)
+            return ("openrouter", out, extra)
+
+        if backend == 'ollama':
+            out, diag = call_ollama(prompt, temperature=temperature, gen_options=gen_options)
+            # If Ollama reports missing model, try to auto-pull (call_ollama now attempts that) or fallback to local
+            if isinstance(out, str) and out.lower().startswith("model '") and shutil.which('ollama'):
+                # call_ollama should have tried to pull; if still failing, try local
+                if os.path.exists(MODEL_PATH) and (os.path.exists(LLAMA_CPP_BIN) or shutil.which(LLAMA_CPP_BIN)):
+                    out2, diag2 = call_llama_cpp(prompt)
+                    merged = {'preferred': 'llama.cpp', 'ollama': diag, 'llama': diag2}
+                    # Optional review for llama.cpp fallback
+                    if review_mode and out2:
+                        review_prompt = f"""You are a strict reviewer. In 3-5 short bullets, assess the following draft for:
+- factual correctness vs Context
+- missing/weak references
+- security/performance caveats
+If no issues, say 'Looks good'.
+
+Context:\n{ctx}\n\nQuestion:\n{question}\n\nDraft Answer:\n{out2}\n"""
+                        rev_out, _ = call_llama_cpp(review_prompt)
+                        if rev_out:
+                            out2 = f"{out2}\n\nQuality Check:\n{rev_out.strip()}"
+                            merged['review'] = rev_out.strip()
+                    try:
+                        if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out2 or "").lower():
+                            refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                            out2 = f"{out2}\n\nReferences:\n{refs}"
+                    except Exception:
+                        pass
+                    # Lint generated LuaU for common API mistakes (only when review_mode)
+                    if review_mode:
+                        try:
+                            lint_notes = lint_luau_snippets(out2 or "")
+                            if lint_notes:
+                                out2 = f"{out2}\n\nNotes:\n- " + "\n- ".join(lint_notes[:3])
+                        except Exception:
+                            pass
+                    out2 = sanitize_answer(out2)
+                    return ("llama.cpp", out2, merged)
+            # Optional review for ollama primary path
+            if review_mode and out:
+                review_prompt = f"""You are a strict reviewer. In 3-5 short bullets, assess the following draft for:
+- factual correctness vs Context
+- missing/weak references
+- security/performance caveats
+If no issues, say 'Looks good'.
+
+Context:\n{ctx}\n\nQuestion:\n{question}\n\nDraft Answer:\n{out}\n"""
+                rev_out, _ = call_ollama(review_prompt, temperature=0.3)
+                if rev_out:
+                    out = f"{out}\n\nQuality Check:\n{rev_out.strip()}"
+                    try:
+                        if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                            refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                            out = f"{out}\n\nReferences:\n{refs}"
+                    except Exception:
+                        pass
+                    return ("ollama", out, {'ollama': diag, 'sources': ctx_sources, 'review': rev_out.strip()})
+            extra = {'ollama': diag, 'sources': ctx_sources}
+            if plan_steps:
+                extra['plan_steps'] = plan_steps
+            try:
+                if isinstance(ctx_sources, list) and ctx_sources and "references:" not in (out or "").lower():
+                    refs = "\n".join(f"- {s}" for s in ctx_sources[:8])
+                    out = f"{out}\n\nReferences:\n{refs}"
+            except Exception:
+                pass
+            # Lightweight API linting (only when review_mode)
+            if review_mode:
+                try:
+                    lint_notes = lint_luau_snippets(out or "")
+                    if lint_notes:
+                        out = f"{out}\n\nNotes:\n- " + "\n- ".join(lint_notes[:3])
+                except Exception:
+                    pass
+            # Sanitize final text (strip apologies, normalize fences)
+            out = sanitize_answer(out)
+            return ("ollama", out, extra)
+
+        # Fallback safeguard: return something even if no branch matched
+        return (backend, sanitize_answer(out if 'out' in locals() else ""), {'sources': ctx_sources})
+
+def main():
+    print("LuaU RAG (local) - type 'exit' to quit.")
+    print("Context length for Ollama models is 12000000 tokens, but external models are capped at 204000 tokens.")
+    while True:
+        q = input("> ").strip()
+        if not q:
+            continue
+        if q.lower() in ("exit", "quit"):
+            break
+        if q.lower() == "status":
+            print(f"Model path: {MODEL_PATH}")
+            llama_exists = os.path.exists(LLAMA_CPP_BIN) or shutil.which(LLAMA_CPP_BIN) is not None
+            print(f"llama.cpp bin: {LLAMA_CPP_BIN} (exists: {llama_exists})")
+            ollama_path = shutil.which("ollama")
+            print(f"ollama: {ollama_path if ollama_path else 'not found on PATH'}")
+            if ollama_path:
+                try:
+                    proc = subprocess.run([ollama_path, "list"], capture_output=True, text=True, timeout=10)
+                    models_list = (proc.stdout or "").lower()
+                    model_present = OLLAMA_MODEL.lower() in models_list
+                    print(f"ollama model present: {model_present}")
+                    if not model_present:
+                        print(f"To pull the model, run: ollama pull {OLLAMA_MODEL}")
+                except Exception as e:
+                    print(f"Could not check ollama models: {e}")
+                    print("Ensure the Ollama service is running")
+            continue
+        print("Retrieving docs and querying model...")
+        result = ask(q)
+        # support both old and new return shapes
+        if isinstance(result, tuple) and len(result) == 3:
+            backend, resp, diag = result
+        elif isinstance(result, tuple) and len(result) == 2:
+            backend, resp = result
+            diag = None
+        else:
+            backend = 'unknown'
+            resp = str(result)
+            diag = None
+        print(f"\n[backend: {backend}]\n---\n{resp}\n---\n")
+        print(f"\n[backend: {backend}]\n---\n{resp}\n---\n")
+
+if __name__ == "__main__":
+    main()
+
+

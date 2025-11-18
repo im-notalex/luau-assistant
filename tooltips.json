@@ -1,0 +1,1628 @@
+﻿{
+    "_meta":  {
+                  "version":  "2.7",
+                  "about":  "Verified Luau/Roblox API tooltip dataset."
+              },
+              
+    "services":  {
+                     "Players":  {
+                                     "summary":  "Manages players joining/leaving and Player objects.",
+                                     "usage":  "game:GetService(\u0027Players\u0027)",
+                                     "notes":  [
+                                                   "Tip: LocalPlayer is client-only (nil on server); use PlayerAdded/Removing on server."
+                                               ]
+                                 },
+                     "ReplicatedStorage":  {
+                                               "summary":  "Shared storage replicated to clients. Shared modules/remotes live here.",
+                                               "usage":  "game:GetService(\u0027ReplicatedStorage\u0027)",
+                                               "notes":  [
+                                                             "Tip: Put RemoteEvent/RemoteFunction and shared ModuleScripts here; never store secrets (use ServerStorage)."
+                                                         ]
+                                           },
+                     "ServerStorage":  {
+                                           "summary":  "Server-only storage (not replicated to clients).",
+                                           "usage":  "game:GetService(\u0027ServerStorage\u0027)",
+                                           "notes":  [
+                                                         "Tip: Place secrets/server-only modules here; never expose to clients."
+                                                     ]
+                                       },
+                     "StarterGui":  {
+                                        "summary":  "Starter UI templates replicated to PlayerGui.",
+                                        "usage":  "game:GetService(\u0027StarterGui\u0027)",
+                                        "notes":  [
+                                                      "Tip: Use ResetOnSpawn=false for persistent UIs; avoid heavy logic in StarterGui scripts."
+                                                  ]
+                                    },
+                     "StarterPlayer":  {
+                                           "summary":  "Starter scripts/settings applied to players.",
+                                           "usage":  "game:GetService(\u0027StarterPlayer\u0027)",
+                                           "notes":  [
+                                                         "Tip: Put LocalScripts in StarterPlayerScripts; ServerScripts belong in ServerScriptService."
+                                                     ]
+                                       },
+                     "RunService":  {
+                                        "summary":  "Heartbeat/RenderStepped/Stepped loops.",
+                                        "usage":  "game:GetService(\u0027RunService\u0027)",
+                                        "notes":  [
+                                                      "Tip: Prefer events over tight while loops; keep per-frame work light."
+                                                  ]
+                                    },
+                     "PathfindingService":  {
+                                                "summary":  "Create NPC navigation paths.",
+                                                "usage":  "game:GetService(\u0027PathfindingService\u0027)",
+                                                "notes":  [
+                                                              "Tip: Check path.Status; handle Blocked and recompute as needed."
+                                                          ]
+                                            },
+                     "DataStoreService":  {
+                                              "summary":  "Persistent key-value storage (budgeted \u0026 throttled).",
+                                              "usage":  "game:GetService(\u0027DataStoreService\u0027)",
+                                              "notes":  [
+                                                            "Tip: Make writes idempotent and respect budgets; batch updates and use UpdateAsync."
+                                                        ]
+                                          },
+                     "HttpService":  {
+                                         "summary":  "HTTP requests (if enabled) and JSON utilities.",
+                                         "usage":  "game:GetService(\u0027HttpService\u0027)",
+                                         "notes":  [
+                                                       "Tip: Always filter/validate remote responses; respect request limits and timeouts."
+                                                   ]
+                                     },
+                     "MessagingService":  {
+                                              "summary":  "Cross-server publish/subscribe messaging.",
+                                              "usage":  "game:GetService(\u0027MessagingService\u0027)",
+                                              "notes":  [
+                                                            "Tip: Debounce/coalesce publishes; handle retries and rate limits gracefully."
+                                                        ]
+                                          },
+                     "CollectionService":  {
+                                               "summary":  "Tag instances and query by tags.",
+                                               "usage":  "game:GetService(\u0027CollectionService\u0027)",
+                                               "notes":  [
+                                                             "Tip: Keep tags stable; avoid tight polling—use signals or periodic refresh."
+                                                         ]
+                                           },
+                     "UserInputService":  {
+                                              "summary":  "Keyboard/mouse/touch input (client-only).",
+                                              "usage":  "game:GetService(\u0027UserInputService\u0027)",
+                                              "notes":  [
+                                                            "Tip: For unified actions use ContextActionService; UIS is client-only."
+                                                        ]
+                                          },
+                     "ContextActionService":  {
+                                                  "summary":  "Bind inputs to named actions across devices.",
+                                                  "usage":  "game:GetService(\u0027ContextActionService\u0027)",
+                                                  "notes":  [
+                                                                "Tip: Always UnbindAction when leaving a state to avoid leaks."
+                                                            ]
+                                              },
+                     "TweenService":  {
+                                          "summary":  "Create and play Tweens on instances.",
+                                          "usage":  "game:GetService(\u0027TweenService\u0027)",
+                                          "notes":  [
+                                                        "Tip: Only tween tweenable properties; limit simultaneous tweens to avoid hitches."
+                                                    ]
+                                      },
+                     "MarketplaceService":  {
+                                                "summary":  "In-experience purchases and receipt handling.",
+                                                "usage":  "game:GetService(\u0027MarketplaceService\u0027)",
+                                                "notes":  [
+                                                              "Tip: ProcessReceipt must be idempotent and return PurchaseGranted; store processed receipts."
+                                                          ]
+                                            },
+                     "Lighting":  {
+                                      "summary":  "Global lighting and atmosphere configuration.",
+                                      "usage":  "game:GetService(\u0027Lighting\u0027)",
+                                      "notes":  [
+                                                    "Tip: Changing many properties per frame can hitch; tween a few key values."
+                                                ]
+                                  },
+                     "SoundService":  {
+                                          "summary":  "Global audio configuration and utilities.",
+                                          "usage":  "game:GetService(\u0027SoundService\u0027)",
+                                          "notes":  [
+                                                        "Tip: Use PlayLocalSound for client-only feedback; manage volumes centrally."
+                                                    ]
+                                      },
+                     "ReplicatedFirst":  {
+                                             "summary":  "Replicated assets/scripts loaded before PlayerGui.",
+                                             "usage":  "game:GetService(\u0027ReplicatedFirst\u0027)",
+                                             "notes":  [
+                                                           "Tip: Keep Preload/intro scripts fast; transition promptly to experience UI."
+                                                       ]
+                                         },
+                     "Debris":  {
+                                    "summary":  "Automatic timed cleanup of instances.",
+                                    "usage":  "game:GetService(\u0027Debris\u0027)",
+                                    "notes":  [
+                                                  "Tip: Use AddItem instead of manual delays for predictable cleanup."
+                                              ]
+                                },
+                     "PhysicsService":  {
+                                            "summary":  "Collision groups and physics permissions.",
+                                            "usage":  "game:GetService(\u0027PhysicsService\u0027)",
+                                            "notes":  [
+                                                          "Tip: Define collision groups once and reuse; avoid per-frame group changes."
+                                                      ]
+                                        },
+                     "BadgeService":  {
+                                          "summary":  "Grant/query badges for users.",
+                                          "usage":  "game:GetService(\u0027BadgeService\u0027)",
+                                          "notes":  [
+                                                        "Tip: Check UserHasBadgeAsync before AwardBadge; handle errors and retries."
+                                                    ]
+                                      },
+                     "TextService":  {
+                                         "summary":  "Text filtering and measurement.",
+                                         "usage":  "game:GetService(\u0027TextService\u0027)",
+                                         "notes":  [
+                                                       "Tip: Always filter UGC text before display; cache FilterStringAsync results when safe."
+                                                   ]
+                                     },
+                     "LocalizationService":  {
+                                                 "summary":  "Localization tables and locale info.",
+                                                 "usage":  "game:GetService(\u0027LocalizationService\u0027)",
+                                                 "notes":  [
+                                                               "Tip: Use localization tables for strings; avoid hard-coded text."
+                                                           ]
+                                             },
+                     "PolicyService":  {
+                                           "summary":  "Region/user policy checks (platform rules).",
+                                           "usage":  "game:GetService(\u0027PolicyService\u0027)",
+                                           "notes":  [
+                                                         "Tip: Query once and cache per session; feature-flag content by policy."
+                                                     ]
+                                       },
+                     "TeleportService":  {
+                                             "summary":  "Teleport players between places/universes.",
+                                             "usage":  "game:GetService(\u0027TeleportService\u0027)",
+                                             "notes":  [
+                                                           "Tip: Use TeleportAsync with options; handle errors and retry with backoff."
+                                                       ]
+                                         },
+                     "Teams":  {
+                                   "summary":  "Manage player teams and team-based rules.",
+                                   "usage":  "game:GetService(\u0027Teams\u0027)",
+                                   "notes":  [
+                                                 "Tip: Update team membership server-side and reflect UI on clients."
+                                             ]
+                               },
+                     "StarterPack":  {
+                                         "summary":  "Tools replicated to players on spawn.",
+                                         "usage":  "game:GetService(\u0027StarterPack\u0027)",
+                                         "notes":  [
+                                                       "Tip: Use for tool defaults only; manage runtime tool giving from server."
+                                                   ]
+                                     }
+                 },
+    "classes":  {
+                    "Instance":  {
+                                     "summary":  "Base class of all Roblox objects.",
+                                     "usage":  "Instance.new(\u0027ClassName\u0027)",
+                                     "notes":  [
+                                                   "Prefer :FindFirstChild / :WaitForChild over deep indexing that may be nil",
+                                                   "Avoid heavy reparenting in tight loops"
+                                               ]
+                                 },
+                    "Humanoid":  {
+                                     "summary":  "Character controller for models.",
+                                     "usage":  "character:FindFirstChild(\u0027Humanoid\u0027)",
+                                     "notes":  [
+                                                   "Use :LoadCharacter() on server to respawn",
+                                                   "Move the Model (PivotTo/MoveTo) rather than setting HumanoidRootPart directly when possible"
+                                               ]
+                                 },
+                    "BasePart":  {
+                                     "summary":  "Physical part base class (e.g., Part).",
+                                     "usage":  "part.Anchored = true",
+                                     "notes":  [
+                                                   "Anchored + CanCollide for static parts",
+                                                   "Debounce .Touched handlers; they can fire often"
+                                               ]
+                                 },
+                    "Model":  {
+                                  "summary":  "Container of instances with transform.",
+                                  "usage":  "model:PivotTo(cf)",
+                                  "notes":  [
+                                                "Set PrimaryPart for PivotTo/MoveTo",
+                                                "Use :GetExtentsSize() to approximate size"
+                                            ]
+                              },
+                    "Camera":  {
+                                   "summary":  "Active camera on the client.",
+                                   "usage":  "workspace.CurrentCamera.CFrame = cf",
+                                   "notes":  [
+                                                 "Modify on client only",
+                                                 "Restore CameraType = Enum.CameraType.Custom after custom cams"
+                                             ]
+                               },
+                    "TextLabel":  {
+                                      "summary":  "UI text display element.",
+                                      "usage":  "textLabel.Text = \u0027Hello\u0027",
+                                      "notes":  [
+                                                    "Enable RichText to use tags",
+                                                    "TextScaled can be expensive at large sizes"
+                                                ]
+                                  },
+                    "GuiObject":  {
+                                      "summary":  "Base for screen UI elements.",
+                                      "usage":  "gui.Visible = true",
+                                      "notes":  [
+                                                    "Use AnchorPoint + Position for predictable layout",
+                                                    "UIScale/constraints for DPI independence"
+                                                ]
+                                  },
+                    "Folder":  {
+                                   "summary":  "Lightweight container with no properties affecting rendering.",
+                                   "usage":  "Instance.new(\u0027Folder\u0027, parent)",
+                                   "notes":  [
+                                                 "Organize instances by responsibility",
+                                                 "Safe for replication; no rendering cost"
+                                             ]
+                               },
+                    "BillboardGui":  {
+                                         "summary":  "Billboarded 2D UI attached to 3D objects.",
+                                         "usage":  "Instance.new(\u0027BillboardGui\u0027, part)",
+                                         "notes":  [
+                                                       "Set Adornee to target",
+                                                       "Use MaxDistance to limit render range"
+                                                   ]
+                                     },
+                    "SurfaceGui":  {
+                                       "summary":  "GUI rendered on a face of a 3D object.",
+                                       "usage":  "Instance.new(\u0027SurfaceGui\u0027, part)",
+                                       "notes":  [
+                                                     "Set Face (Front/Back/etc.)",
+                                                     "SizingMode = PixelsPerStud for crisp text"
+                                                 ]
+                                   },
+                    "ProximityPrompt":  {
+                                            "summary":  "In-world interaction prompt for players.",
+                                            "usage":  "Instance.new(\u0027ProximityPrompt\u0027, part)",
+                                            "notes":  [
+                                                          "RequiresLineOfSight for realism",
+                                                          "Use ExclusionGroups to prevent overlap spam"
+                                                      ]
+                                        },
+                    "Beam":  {
+                                 "summary":  "Renders a beam between two attachments.",
+                                 "usage":  "Instance.new(\u0027Beam\u0027, parent)",
+                                 "notes":  [
+                                               "Requires Attachment0 and Attachment1",
+                                               "Width0/Width1 and Texture for style"
+                                           ]
+                             },
+                    "Trail":  {
+                                  "summary":  "Renders a trail following attachments.",
+                                  "usage":  "Instance.new(\u0027Trail\u0027, parent)",
+                                  "notes":  [
+                                                "Requires Attachment0 and Attachment1",
+                                                "Color/Transparency and Lifetime shape look"
+                                            ]
+                              },
+                    "ParticleEmitter":  {
+                                            "summary":  "Emits particles from a part or attachment.",
+                                            "usage":  "Instance.new(\u0027ParticleEmitter\u0027, parent)",
+                                            "notes":  [
+                                                          "Tune Rate and Lifetime for performance",
+                                                          "Prefer atlases; avoid too many emitters"
+                                                      ]
+                                        },
+                    "TextButton":  {
+                                       "summary":  "Clickable UI button element.",
+                                       "usage":  "Instance.new(\u0027TextButton\u0027, parent)",
+                                       "notes":  [
+                                                     "Use Activated for mouse/touch/gamepad",
+                                                     "AutoButtonColor gives instant hover feedback"
+                                                 ]
+                                   },
+                    "UIStroke":  {
+                                     "summary":  "Outline stroke for UI objects.",
+                                     "usage":  "Instance.new(\u0027UIStroke\u0027, gui)",
+                                     "notes":  [
+                                                   "Thickness is pixels",
+                                                   "Combine with UICorner for badges"
+                                               ]
+                                 },
+                    "UIScale":  {
+                                    "summary":  "Scale all descendants of a UI object.",
+                                    "usage":  "Instance.new(\u0027UIScale\u0027, gui)",
+                                    "notes":  [
+                                                  "Multiplicative scaling",
+                                                  "Use constraints to preserve layout"
+                                              ]
+                                },
+                    "Promise":  {
+                                    "summary":  "Promise/A+ style async abstraction (rbx-lua-promise).",
+                                    "usage":  "local Promise = require(path.to.Promise)",
+                                    "notes":  [
+                                                  "Chain with :andThen/:catch/:finally",
+                                                  "Use Promise.all to run in parallel"
+                                              ]
+                                },
+                    "Frame":  {
+                                  "summary":  "Basic rectangular UI container.",
+                                  "usage":  "Instance.new(\u0027Frame\u0027, parent)",
+                                  "notes":  [
+                                                "Use UICorner/UIStroke for style",
+                                                "AnchorPoint + Position for layout"
+                                            ]
+                              },
+                    "ImageLabel":  {
+                                       "summary":  "UI element that displays an image.",
+                                       "usage":  "Instance.new(\u0027ImageLabel\u0027, parent)",
+                                       "notes":  [
+                                                     "Set Image and ScaleType",
+                                                     "Use SliceCenter for 9-slice"
+                                                 ]
+                                   },
+                    "ImageButton":  {
+                                        "summary":  "Clickable image UI element.",
+                                        "usage":  "Instance.new(\u0027ImageButton\u0027, parent)",
+                                        "notes":  [
+                                                      "Use Activated for clicks",
+                                                      "AutoButtonColor gives feedback"
+                                                  ]
+                                    },
+                    "UICorner":  {
+                                     "summary":  "Rounds the corners of UI elements.",
+                                     "usage":  "Instance.new(\u0027UICorner\u0027, gui)",
+                                     "notes":  [
+                                                   "CornerRadius is a UDim e.g. UDim.new(0,8)"
+                                               ]
+                                 },
+                    "UIListLayout":  {
+                                         "summary":  "Vertical/horizontal layout for UI children.",
+                                         "usage":  "Instance.new(\u0027UIListLayout\u0027, container)",
+                                         "notes":  [
+                                                       "Padding controls spacing",
+                                                       "SortOrder uses LayoutOrder"
+                                                   ]
+                                     },
+                    "UIGridLayout":  {
+                                         "summary":  "Grid layout for UI children.",
+                                         "usage":  "Instance.new(\u0027UIGridLayout\u0027, container)",
+                                         "notes":  [
+                                                       "CellSize/CellPadding control sizing",
+                                                       "FillDirectionMaxCells to wrap"
+                                                   ]
+                                     },
+                    "UIAspectRatioConstraint":  {
+                                                    "summary":  "Locks aspect ratio of a UI element.",
+                                                    "usage":  "Instance.new(\u0027UIAspectRatioConstraint\u0027, gui)",
+                                                    "notes":  [
+                                                                  "Set AspectRatio width/height value"
+                                                              ]
+                                                },
+                    "UIGradient":  {
+                                       "summary":  "Applies a color gradient to a UI element.",
+                                       "usage":  "Instance.new(\u0027UIGradient\u0027, gui)",
+                                       "notes":  [
+                                                     "Color is a ColorSequence",
+                                                     "Rotation sets angle"
+                                                 ]
+                                   },
+                    "ScrollingFrame":  {
+                                           "summary":  "Scrollable container for UI content.",
+                                           "usage":  "Instance.new(\u0027ScrollingFrame\u0027, parent)",
+                                           "notes":  [
+                                                         "CanvasSize controls virtual size",
+                                                         "AutomaticCanvasSize can auto expand"
+                                                     ]
+                                       },
+                    "ScreenGui":  {
+                                      "summary":  "Top-level GUI container within PlayerGui.",
+                                      "usage":  "Instance.new(\u0027ScreenGui\u0027, player.PlayerGui)",
+                                      "notes":  [
+                                                    "ResetOnSpawn=false to persist",
+                                                    "IgnoreGuiInset for full screen"
+                                                ]
+                                  },
+                    "Attachment":  {
+                                       "summary":  "Reference frame attached to an instance.",
+                                       "usage":  "Instance.new(\u0027Attachment\u0027, part)",
+                                       "notes":  [
+                                                     "Used by beams, trails, constraints",
+                                                     "CFrame is relative to parent"
+                                                 ]
+                                   },
+                    "WeldConstraint":  {
+                                           "summary":  "Rigidly welds two parts together.",
+                                           "usage":  "Instance.new(\u0027WeldConstraint\u0027, part)",
+                                           "notes":  [
+                                                         "Set Part0/Part1 or parent properly",
+                                                         "Use for rigid links"
+                                                     ]
+                                       },
+                    "Motor6D":  {
+                                    "summary":  "Animated joint between two parts.",
+                                    "usage":  "Instance.new(\u0027Motor6D\u0027, part)",
+                                    "notes":  [
+                                                  "Set C0/C1 to position joint",
+                                                  "Common in character rigs"
+                                              ]
+                                },
+                    "AlignPosition":  {
+                                          "summary":  "Constraint to align position.",
+                                          "usage":  "Instance.new(\u0027AlignPosition\u0027, part)",
+                                          "notes":  [
+                                                        "Use Attachment0/1 or center of mass",
+                                                        "Tune Responsiveness/MaxForce"
+                                                    ]
+                                      },
+                    "AlignOrientation":  {
+                                             "summary":  "Constraint to align orientation.",
+                                             "usage":  "Instance.new(\u0027AlignOrientation\u0027, part)",
+                                             "notes":  [
+                                                           "Use Attachment0/1",
+                                                           "Tune Responsiveness/MaxTorque"
+                                                       ]
+                                         },
+                    "LinearVelocity":  {
+                                           "summary":  "Applies linear velocity to an assembly.",
+                                           "usage":  "Instance.new(\u0027LinearVelocity\u0027, part)",
+                                           "notes":  [
+                                                         "VectorVelocity is studs/s",
+                                                         "Use Attachment relative space"
+                                                     ]
+                                       },
+                    "AngularVelocity":  {
+                                            "summary":  "Applies angular velocity (radians/s).",
+                                            "usage":  "Instance.new(\u0027AngularVelocity\u0027, part)",
+                                            "notes":  [
+                                                          "MaxTorque caps effect",
+                                                          "Use AlignOrientation for stable control"
+                                                      ]
+                                        },
+                    "VectorForce":  {
+                                        "summary":  "Applies a constant force vector.",
+                                        "usage":  "Instance.new(\u0027VectorForce\u0027, part)",
+                                        "notes":  [
+                                                      "Force in Newtons",
+                                                      "RelativeTo World or Attachment0"
+                                                  ]
+                                    },
+                    "Animation":  {
+                                      "summary":  "Asset that defines keyframe animation.",
+                                      "usage":  "Instance.new(\u0027Animation\u0027)",
+                                      "notes":  [
+                                                    "Set AnimationId to rbxassetid",
+                                                    "Load with Animator:LoadAnimation"
+                                                ]
+                                  },
+                    "AnimationTrack":  {
+                                           "summary":  "Playable instance returned by LoadAnimation.",
+                                           "usage":  "local track = animator:LoadAnimation(anim)",
+                                           "notes":  [
+                                                         ":Play()/:Stop() and .IsPlaying"
+                                                     ]
+                                       },
+                    "Animator":  {
+                                     "summary":  "Handles playing animations on a rig.",
+                                     "usage":  "Instance.new(\u0027Animator\u0027, humanoid)",
+                                     "notes":  [
+                                                   "Parent to Humanoid/AnimationController",
+                                                   "Use :LoadAnimation to get tracks"
+                                               ]
+                                 },
+                    "Tween":  {
+                                  "summary":  "Object returned by TweenService:Create to control playback.",
+                                  "usage":  "local tween = TweenService:Create(inst, info, goals)",
+                                  "notes":  [
+                                                "Call :Play() and :Cancel()",
+                                                "Listen for .Completed"
+                                            ]
+                              },
+                    "Team":  {
+                                 "summary":  "Group of players with shared rules/colors.",
+                                 "usage":  "Instance.new(\u0027Team\u0027, game.Teams)",
+                                 "notes":  [
+                                               "Set TeamColor/Color",
+                                               "Players have .Team"
+                                           ]
+                             }
+                },
+    "datatypes":  {
+                      "Vector3":  {
+                                      "summary":  "3D vector.",
+                                      "usage":  "Vector3.new(x,y,z)"
+                                  },
+                      "CFrame":  {
+                                     "summary":  "3D transform (position+rotation).",
+                                     "usage":  "CFrame.new(pos) * CFrame.Angles(rx,ry,rz)"
+                                 },
+                      "UDim2":  {
+                                    "summary":  "2D position/size with scale+offset.",
+                                    "usage":  "UDim2.fromScale(1,0.5)"
+                                },
+                      "Color3":  {
+                                     "summary":  "RGB color.",
+                                     "usage":  "Color3.fromRGB(255,0,0)"
+                                 },
+                      "TweenInfo":  {
+                                        "summary":  "Tween configuration (time, style, direction, repeat, reverses, delay).",
+                                        "usage":  "TweenInfo.new(time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, repeatCount, reverses, delayTime)"
+                                    },
+                      "Vector2":  {
+                                      "summary":  "2D vector.",
+                                      "usage":  "Vector2.new(x,y)"
+                                  },
+                      "NumberRange":  {
+                                          "summary":  "Range with min and max.",
+                                          "usage":  "NumberRange.new(min, max)"
+                                      },
+                      "NumberSequence":  {
+                                             "summary":  "Sequence of numbers over [0,1].",
+                                             "usage":  "NumberSequence.new(0, 1)"
+                                         },
+                      "ColorSequence":  {
+                                            "summary":  "Sequence of colors over [0,1].",
+                                            "usage":  "ColorSequence.new(Color3.new(1,1,1))"
+                                        },
+                      "RaycastParams":  {
+                                            "summary":  "Parameters for workspace:Raycast.",
+                                            "usage":  "local p=RaycastParams.new(); p.FilterDescendantsInstances={inst}; p.FilterType=Enum.RaycastFilterType.Blacklist"
+                                        },
+                      "UnitRay":  {
+                                      "summary":  "Ray with unit-length direction from an origin.",
+                                      "usage":  "local ur = workspace.CurrentCamera:ScreenPointToRay(x,y)"
+                                  },
+                      "Ray":  {
+                                  "summary":  "Ray with origin and direction.",
+                                  "usage":  "local r = Ray.new(origin, direction)"
+                              }
+                  },
+    "functions":  {
+                      "GetService":  {
+                                         "summary":  "Retrieve a service by name.",
+                                         "usage":  "game:GetService(\u0027ServiceName\u0027)"
+                                     },
+                      "WaitForChild":  {
+                                           "summary":  "Yield until child exists.",
+                                           "usage":  "inst:WaitForChild(\u0027Name\u0027)"
+                                       },
+                      "FindFirstChild":  {
+                                             "summary":  "Find immediate child.",
+                                             "usage":  "inst:FindFirstChild(\u0027Name\u0027)"
+                                         },
+                      "FindFirstChildOfClass":  {
+                                                    "summary":  "Find first child with class.",
+                                                    "usage":  "inst:FindFirstChildOfClass(\u0027ClassName\u0027)"
+                                                },
+                      "FindFirstChildWhichIsA":  {
+                                                     "summary":  "Find child by type (inheritance).",
+                                                     "usage":  "inst:FindFirstChildWhichIsA(\u0027ClassName\u0027)"
+                                                 },
+                      "FindFirstAncestor":  {
+                                                "summary":  "Find first ancestor.",
+                                                "usage":  "inst:FindFirstAncestor(\u0027Name\u0027)"
+                                            },
+                      "FindFirstAncestorOfClass":  {
+                                                       "summary":  "Find first ancestor with class.",
+                                                       "usage":  "inst:FindFirstAncestorOfClass(\u0027ClassName\u0027)"
+                                                   },
+                      "Connect":  {
+                                      "summary":  "Connect to an event.",
+                                      "usage":  "signal:Connect(function(...) end)"
+                                  },
+                      "Destroy":  {
+                                      "summary":  "Destroy an instance.",
+                                      "usage":  "inst:Destroy()"
+                                  },
+                      "Clone":  {
+                                    "summary":  "Clone an instance.",
+                                    "usage":  "inst:Clone()"
+                                },
+                      "IsA":  {
+                                  "summary":  "Check if instance is a given class.",
+                                  "usage":  "inst:IsA(\u0027ClassName\u0027)"
+                              },
+                      "print":  {
+                                    "summary":  "Print values to output.",
+                                    "usage":  "print(a, b, c)"
+                                },
+                      "warn":  {
+                                   "summary":  "Print a warning (yellow).",
+                                   "usage":  "warn(message)"
+                               },
+                      "typeof":  {
+                                     "summary":  "Return Luau type of a value.",
+                                     "usage":  "typeof(x) -- \u0027number\u0027|\u0027string\u0027|..."
+                                 },
+                      "pairs":  {
+                                    "summary":  "Iterate key,value over table.",
+                                    "usage":  "for k,v in pairs(t) do ... end"
+                                },
+                      "ipairs":  {
+                                     "summary":  "Iterate index,value over array.",
+                                     "usage":  "for i,v in ipairs(t) do ... end"
+                                 },
+                      "next":  {
+                                   "summary":  "Iterator used by pairs().",
+                                   "usage":  "next(t, [index])"
+                               },
+                      "pcall":  {
+                                    "summary":  "Protected call; returns ok, result.",
+                                    "usage":  "local ok, res = pcall(fn, ...)"
+                                },
+                      "xpcall":  {
+                                     "summary":  "Protected call w/ error handler.",
+                                     "usage":  "xpcall(fn, errHandler)"
+                                 },
+                      "setmetatable":  {
+                                           "summary":  "Set table metatable.",
+                                           "usage":  "setmetatable(t, mt)"
+                                       },
+                      "getmetatable":  {
+                                           "summary":  "Get table metatable.",
+                                           "usage":  "getmetatable(t)"
+                                       },
+                      "rawget":  {
+                                     "summary":  "Raw get (bypass metamethods).",
+                                     "usage":  "rawget(t, key)"
+                                 },
+                      "rawset":  {
+                                     "summary":  "Raw set (bypass metamethods).",
+                                     "usage":  "rawset(t, key, value)"
+                                 },
+                      "rawequal":  {
+                                       "summary":  "Raw equality check.",
+                                       "usage":  "rawequal(a, b)"
+                                   },
+                      "select":  {
+                                     "summary":  "Select parts of varargs.",
+                                     "usage":  "select(i, ...)"
+                                 },
+                      "tostring":  {
+                                       "summary":  "Convert to string.",
+                                       "usage":  "tostring(x)"
+                                   },
+                      "tonumber":  {
+                                       "summary":  "Convert to number.",
+                                       "usage":  "tonumber(s, [base])"
+                                   },
+                      "assert":  {
+                                     "summary":  "Throw error if not truthy.",
+                                     "usage":  "assert(cond, message)"
+                                 },
+                      "error":  {
+                                    "summary":  "Raise an error.",
+                                    "usage":  "error(message)"
+                                },
+                      "unpack":  {
+                                     "summary":  "Unpack array (table.unpack).",
+                                     "usage":  "table.unpack(t)"
+                                 },
+                      "concat":  {
+                                     "summary":  "Concatenate array.",
+                                     "usage":  "table.concat(t, \u0027,\u0027)"
+                                 },
+                      "create":  {
+                                     "summary":  "Create table with capacity (Luau).",
+                                     "usage":  "table.create(n, value)"
+                                 },
+                      "clear":  {
+                                    "summary":  "Clear table (Luau).",
+                                    "usage":  "table.clear(t)"
+                                },
+                      "move":  {
+                                   "summary":  "Move elements between arrays.",
+                                   "usage":  "table.move(a, f, e, t, [dst])"
+                               },
+                      "byte":  {
+                                   "summary":  "String byte values.",
+                                   "usage":  "string.byte(s, i, [j])"
+                               },
+                      "char":  {
+                                   "summary":  "Chars from codes.",
+                                   "usage":  "string.char(code1, ...)"
+                               },
+                      "sub":  {
+                                  "summary":  "Substring.",
+                                  "usage":  "string.sub(s, i, [j])"
+                              },
+                      "gsub":  {
+                                   "summary":  "Global substitution.",
+                                   "usage":  "string.gsub(s, pattern, repl)"
+                               },
+                      "gmatch":  {
+                                     "summary":  "Iterator for matches.",
+                                     "usage":  "for a in string.gmatch(s, pat) do ... end"
+                                 },
+                      "find":  {
+                                   "summary":  "Find substring/pattern.",
+                                   "usage":  "string.find(s, pattern)"
+                               },
+                      "reverse":  {
+                                      "summary":  "Reverse string.",
+                                      "usage":  "string.reverse(s)"
+                                  },
+                      "rep":  {
+                                  "summary":  "Repeat string.",
+                                  "usage":  "string.rep(s, n)"
+                              },
+                      "abs":  {
+                                  "summary":  "Absolute value.",
+                                  "usage":  "math.abs(x)"
+                              },
+                      "floor":  {
+                                    "summary":  "Floor.",
+                                    "usage":  "math.floor(x)"
+                                },
+                      "ceil":  {
+                                   "summary":  "Ceil.",
+                                   "usage":  "math.ceil(x)"
+                               },
+                      "random":  {
+                                     "summary":  "Random number.",
+                                     "usage":  "math.random([m[, n]])"
+                                 },
+                      "clamp":  {
+                                    "summary":  "Clamp value.",
+                                    "usage":  "math.clamp(x, min, max)"
+                                },
+                      "min":  {
+                                  "summary":  "Minimum.",
+                                  "usage":  "math.min(a, b, ...)"
+                              },
+                      "max":  {
+                                  "summary":  "Maximum.",
+                                  "usage":  "math.max(a, b, ...)"
+                              },
+                      "deg":  {
+                                  "summary":  "Radians to degrees.",
+                                  "usage":  "math.deg(x)"
+                              },
+                      "rad":  {
+                                  "summary":  "Degrees to radians.",
+                                  "usage":  "math.rad(x)"
+                              },
+                      "math.round":  {
+                                         "summary":  "Round to nearest integer (Luau).",
+                                         "usage":  "math.round(x)"
+                                     },
+                      "math.sign":  {
+                                        "summary":  "Return -1, 0, or 1.",
+                                        "usage":  "math.sign(x)"
+                                    },
+                      "string.split":  {
+                                           "summary":  "Split string by separator into table.",
+                                           "usage":  "local parts = string.split(s, \u0027,\u0027)"
+                                       },
+                      "table.find":  {
+                                         "summary":  "Find value in array, return index or nil.",
+                                         "usage":  "local i = table.find(t, value)"
+                                     },
+                      "table.freeze":  {
+                                           "summary":  "Make table read-only (Luau).",
+                                           "usage":  "table.freeze(t)"
+                                       },
+                      "task.wait":  {
+                                        "summary":  "Yield current thread for seconds.",
+                                        "usage":  "task.wait(0.1)"
+                                    },
+                      "task.delay":  {
+                                         "summary":  "Call a function after a delay.",
+                                         "usage":  "task.delay(1, fn)"
+                                     },
+                      "task.defer":  {
+                                         "summary":  "Schedule function to run after current task.",
+                                         "usage":  "task.defer(fn, ...)"
+                                     },
+                      "task.spawn":  {
+                                         "summary":  "Spawn a new thread.",
+                                         "usage":  "task.spawn(fn, ...)"
+                                     },
+                      "new":  {
+                                  "summary":  "Constructor suffix used by many types (e.g., TweenInfo.new).",
+                                  "usage":  "TweenInfo.new(time, style, dir, repeatCount, reverses, delay)"
+                              }
+                  },
+    "globals":  {
+                    "player":  {
+                                   "summary":  "Variable commonly used for Player in callbacks.",
+                                   "usage":  "remote.OnServerEvent:Connect(function(player, ...) ... end)"
+                               },
+                    "profile":  {
+                                    "summary":  "ProfileService profile table for a player (library-specific).",
+                                    "usage":  "local profile = profiles:GetProfileAsync(key)"
+                                },
+                    "PurchaseEvent":  {
+                                          "summary":  "Typical RemoteEvent name used for purchase callbacks in ReplicatedStorage.",
+                                          "usage":  "local PurchaseEvent = ReplicatedStorage:WaitForChild(\u0027PurchaseEvent\u0027)"
+                                      },
+                    "game":  {
+                                 "summary":  "Root DataModel object.",
+                                 "usage":  "game:GetService(\u0027Players\u0027)"
+                             },
+                    "workspace":  {
+                                      "summary":  "Alias to Service.Workspace.",
+                                      "usage":  "workspace.CurrentCamera"
+                                  },
+                    "script":  {
+                                   "summary":  "Refers to running Script/LocalScript/ModuleScript."
+                               },
+                    "Enum":  {
+                                 "summary":  "Enumeration container.",
+                                 "usage":  "Enum.EasingStyle.Quad"
+                             },
+                    "task":  {
+                                 "summary":  "Task utilities (wait, delay, spawn).",
+                                 "usage":  "task.wait(seconds)"
+                             },
+                    "require":  {
+                                    "summary":  "Load a ModuleScript and return its result.",
+                                    "usage":  "local mod = require(module)"
+                                },
+                    "math":  {
+                                 "summary":  "Math library.",
+                                 "usage":  "math.clamp(x,0,1)"
+                             },
+                    "string":  {
+                                   "summary":  "String library.",
+                                   "usage":  "string.format(\u0027%s\u0027, s)"
+                               },
+                    "table":  {
+                                  "summary":  "Table library.",
+                                  "usage":  "table.insert(t, v)"
+                              },
+                    "utf8":  {
+                                 "summary":  "UTF-8 library.",
+                                 "usage":  "utf8.len(s)"
+                             },
+                    "input":  {
+                                  "summary":  "Variable commonly used for UserInputService callbacks.",
+                                  "usage":  "UserInputService.InputBegan:Connect(function(input,gpe) ... end)"
+                              }
+                },
+    "keywords":  {
+                     "function":  {
+                                      "summary":  "Define a function (local or global).",
+                                      "usage":  "local function name(args) ... end"
+                                  },
+                     "local":  {
+                                   "summary":  "Declare local variable or function.",
+                                   "usage":  "local x = 0"
+                               },
+                     "end":  {
+                                 "summary":  "Closes a block (if/for/while/function).",
+                                 "usage":  "if cond then ... end"
+                             },
+                     "if":  {
+                                "summary":  "Conditional branch.",
+                                "usage":  "if cond then ... elseif cond2 then ... else ... end"
+                            },
+                     "then":  {
+                                  "summary":  "Begins the \u0027then\u0027 block of an if.",
+                                  "usage":  "if cond then ... end"
+                              },
+                     "elseif":  {
+                                    "summary":  "Else-if branch.",
+                                    "usage":  "if a then ... elseif b then ... end"
+                                },
+                     "else":  {
+                                  "summary":  "Else branch.",
+                                  "usage":  "if a then ... else ... end"
+                              },
+                     "for":  {
+                                 "summary":  "Numeric/generic loop.",
+                                 "usage":  "for i=1,10 do ... end | for k,v in pairs(t) do ... end"
+                             },
+                     "do":  {
+                                "summary":  "Begins a block (for/while/do).",
+                                "usage":  "for i=1,3 do ... end"
+                            },
+                     "while":  {
+                                   "summary":  "While loop.",
+                                   "usage":  "while cond do ... end"
+                               },
+                     "repeat":  {
+                                    "summary":  "Repeat-until loop.",
+                                    "usage":  "repeat ... until cond"
+                                },
+                     "until":  {
+                                   "summary":  "Terminates repeat loop when true.",
+                                   "usage":  "repeat ... until cond"
+                               },
+                     "return":  {
+                                    "summary":  "Return from a function.",
+                                    "usage":  "return value"
+                                },
+                     "break":  {
+                                   "summary":  "Exit the nearest loop.",
+                                   "usage":  "for i=1,10 do if cond then break end end"
+                               },
+                     "continue":  {
+                                      "summary":  "Skip to next loop iteration (Luau).",
+                                      "usage":  "for i=1,10 do if cond then continue end end"
+                                  },
+                     "nil":  {
+                                 "summary":  "Absence of a value.",
+                                 "usage":  "local x = nil"
+                             },
+                     "true":  {
+                                  "summary":  "Boolean true.",
+                                  "usage":  "local ok = true"
+                              },
+                     "false":  {
+                                   "summary":  "Boolean false.",
+                                   "usage":  "local ok = false"
+                               },
+                     "and":  {
+                                 "summary":  "Logical AND operator.",
+                                 "usage":  "if a and b then ... end"
+                             },
+                     "or":  {
+                                "summary":  "Logical OR operator.",
+                                "usage":  "x = a or b"
+                            },
+                     "not":  {
+                                 "summary":  "Logical NOT operator.",
+                                 "usage":  "if not cond then ... end"
+                             },
+                     "type":  {
+                                  "summary":  "Type alias declaration (Luau).",
+                                  "usage":  "type Person = {name: string}"
+                              }
+                 },
+    "type":  {
+                 "summary":  "Type alias declaration (Luau).",
+                 "usage":  "type Person = {name: string}"
+             },
+    "boolean":  {
+                    "summary":  "Luau primitive type for true/false.",
+                    "usage":  "local ok: boolean = true"
+                },
+    "string":  {
+                   "summary":  "Luau primitive type for text.",
+                   "usage":  "local msg: string = \u0027hi\u0027"
+               },
+    "number":  {
+                   "summary":  "Luau primitive type for numbers.",
+                   "usage":  "local n: number = 0"
+               },
+    "any":  {
+                "summary":  "Luau top type (disables checking for that value).",
+                "usage":  "local x: any = ..."
+            },
+    "success":  {
+                    "summary":  "Conventional variable name for operation result (non-engine).",
+                    "usage":  "function(cb: (success: boolean)-\u003e()) end"
+                },
+    "message":  {
+                    "summary":  "Conventional variable name for text detail (non-engine).",
+                    "usage":  "print(message)"
+                },
+    "symbols":  {
+                    "==":  {
+                               "summary":  "Equality operator.",
+                               "usage":  "if a == b then ... end"
+                           },
+                    "~=":  {
+                               "summary":  "Inequality operator.",
+                               "usage":  "if a ~= b then ... end"
+                           },
+                    "\u003c":  {
+                                   "summary":  "Less than.",
+                                   "usage":  "if x \u003c 0 then ... end"
+                               },
+                    "\u003c=":  {
+                                    "summary":  "Less than or equal.",
+                                    "usage":  "if x \u003c= 0 then ... end"
+                                },
+                    "\u003e":  {
+                                   "summary":  "Greater than.",
+                                   "usage":  "if x \u003e 0 then ... end"
+                               },
+                    "\u003e=":  {
+                                    "summary":  "Greater than or equal.",
+                                    "usage":  "if x \u003e= 0 then ... end"
+                                },
+                    "..":  {
+                               "summary":  "String concatenation.",
+                               "usage":  "local s = a .. b"
+                           },
+                    "...":  {
+                                "summary":  "Vararg ellipsis.",
+                                "usage":  "function f(...) local args = {...} end"
+                            },
+                    "#":  {
+                              "summary":  "Length operator (string/array).",
+                              "usage":  "local n = #t"
+                          },
+                    ":":  {
+                              "summary":  "Method call sugar.",
+                              "usage":  "obj:Method(x) -- passes obj as first arg"
+                          },
+                    ".":  {
+                              "summary":  "Field access.",
+                              "usage":  "obj.field"
+                          },
+                    "=":  {
+                              "summary":  "Assignment.",
+                              "usage":  "x = 1"
+                          },
+                    "+":  {
+                              "summary":  "Addition.",
+                              "usage":  "x = a + b"
+                          },
+                    "-":  {
+                              "summary":  "Subtraction or unary minus.",
+                              "usage":  "x = a - b; y = -a"
+                          },
+                    "*":  {
+                              "summary":  "Multiplication.",
+                              "usage":  "x = a * b"
+                          },
+                    "/":  {
+                              "summary":  "Division.",
+                              "usage":  "x = a / b"
+                          },
+                    "%":  {
+                              "summary":  "Modulo.",
+                              "usage":  "x = a % b"
+                          },
+                    "^":  {
+                              "summary":  "Exponentiation.",
+                              "usage":  "x = a ^ b"
+                          },
+                    "-\u003e":  {
+                                    "summary":  "Luau function type return arrow.",
+                                    "usage":  "(x: number) -\u003e string"
+                                }
+                },
+    "::":  {
+               "summary":  "Luau type assertion/cast.",
+               "usage":  "(obj :: Part).Anchored = true"
+           },
+    "--!strict":  {
+                      "summary":  "Luau file directive for strict type checking.",
+                      "usage":  "--!strict"
+                  },
+    "--!nonstrict":  {
+                         "summary":  "Luau file directive for non-strict mode.",
+                         "usage":  "--!nonstrict"
+                     },
+    "enums":  {
+                  "EasingStyle":  [
+                                      "Linear",
+                                      "Sine",
+                                      "Back",
+                                      "Bounce",
+                                      "Quad",
+                                      "Quart",
+                                      "Quint",
+                                      "Exponential",
+                                      "Circular",
+                                      "Elastic",
+                                      "Cubic"
+                                  ],
+                  "EasingDirection":  [
+                                          "In",
+                                          "Out",
+                                          "InOut"
+                                      ],
+                  "UserInputType":  [
+                                        "MouseButton1",
+                                        "MouseButton2",
+                                        "MouseButton3",
+                                        "Keyboard",
+                                        "Touch",
+                                        "Gamepad1",
+                                        "Gamepad2",
+                                        "Gamepad3",
+                                        "Gamepad4",
+                                        "Gamepad5",
+                                        "Gamepad6",
+                                        "Gamepad7",
+                                        "Gamepad8"
+                                    ]
+              },
+    "properties":  {
+                       "Players":  {
+                                       "LocalPlayer":  {
+                                                           "summary":  "The local player\u0027s Player instance (client only).",
+                                                           "usage":  "Players.LocalPlayer -- client only",
+                                                           "notes":  [
+                                                                         "nil on server",
+                                                                         "Use Players:GetPlayers() on server"
+                                                                     ]
+                                                       },
+                                       "PlayerAdded":  {
+                                                           "summary":  "Event fires when a player joins.",
+                                                           "usage":  "Players.PlayerAdded:Connect(function(p) ... end)"
+                                                       },
+                                       "PlayerRemoving":  {
+                                                              "summary":  "Event fires when a player leaves.",
+                                                              "usage":  "Players.PlayerRemoving:Connect(function(p) ... end)"
+                                                          },
+                                       "GetPlayers":  {
+                                                          "summary":  "Get array of Player objects.",
+                                                          "usage":  "for _,p in ipairs(Players:GetPlayers()) do ... end"
+                                                      },
+                                       "GetPlayerFromCharacter":  {
+                                                                      "summary":  "Find player owning a character model.",
+                                                                      "usage":  "local p = Players:GetPlayerFromCharacter(character)"
+                                                                  },
+                                       "GetPlayerByUserId":  {
+                                                                 "summary":  "Find player by userId (if in server).",
+                                                                 "usage":  "local p = Players:GetPlayerByUserId(id)"
+                                                             }
+                                   },
+                       "Player":  {
+                                      "Character":  {
+                                                        "summary":  "Character model for the player.",
+                                                        "usage":  "local character = player.Character or player.CharacterAdded:Wait()"
+                                                    },
+                                      "CharacterAdded":  {
+                                                             "summary":  "Event when Character spawns.",
+                                                             "usage":  "player.CharacterAdded:Connect(function(char) ... end)"
+                                                         },
+                                      "UserId":  {
+                                                     "summary":  "Account numeric id.",
+                                                     "usage":  "player.UserId"
+                                                 },
+                                      "Kick":  {
+                                                   "summary":  "Kick a player from the server.",
+                                                   "usage":  "player:Kick(\u0027reason\u0027)"
+                                               },
+                                      "GetMouse":  {
+                                                       "summary":  "Client: access legacy Player Mouse.",
+                                                       "usage":  "local mouse = player:GetMouse()"
+                                                   }
+                                  },
+                       "Workspace":  {
+                                         "CurrentCamera":  {
+                                                               "summary":  "Active Camera for the local client.",
+                                                               "usage":  "workspace.CurrentCamera"
+                                                           },
+                                         "Terrain":  {
+                                                         "summary":  "Voxel terrain container.",
+                                                         "usage":  "workspace.Terrain"
+                                                     },
+                                         "Gravity":  {
+                                                         "summary":  "World gravity in studs/s^2.",
+                                                         "usage":  "workspace.Gravity = 196.2"
+                                                     },
+                                         "Raycast":  {
+                                                         "summary":  "Raycast into the world with parameters.",
+                                                         "usage":  "workspace:Raycast(origin, direction, raycastParams)"
+                                                     }
+                                     },
+                       "ReplicatedStorage":  {
+                                                 "ChildAdded":  {
+                                                                    "summary":  "Event when a child is added.",
+                                                                    "usage":  "ReplicatedStorage.ChildAdded:Connect(function(child) ... end)"
+                                                                }
+                                             },
+                       "RemoteEvent":  {
+                                           "OnServerEvent":  {
+                                                                 "summary":  "Server-side event from clients.",
+                                                                 "usage":  "remote.OnServerEvent:Connect(function(player, ...) ... end)"
+                                                             },
+                                           "OnClientEvent":  {
+                                                                 "summary":  "Client-side event from server.",
+                                                                 "usage":  "remote.OnClientEvent:Connect(function(...) ... end)"
+                                                             },
+                                           "FireServer":  {
+                                                              "summary":  "Client to server fire (no return).",
+                                                              "usage":  "remote:FireServer(...)"
+                                                          },
+                                           "FireClient":  {
+                                                              "summary":  "Server to one client fire (no return).",
+                                                              "usage":  "remote:FireClient(player, ...)"
+                                                          },
+                                           "FireAllClients":  {
+                                                                  "summary":  "Server to all clients broadcast.",
+                                                                  "usage":  "remote:FireAllClients(...)"
+                                                              }
+                                       },
+                       "RemoteFunction":  {
+                                              "OnServerInvoke":  {
+                                                                     "summary":  "Server handler for InvokeClient.",
+                                                                     "usage":  "remote.OnServerInvoke = function(player, ...) return result end"
+                                                                 },
+                                              "OnClientInvoke":  {
+                                                                     "summary":  "Client handler for InvokeServer.",
+                                                                     "usage":  "remote.OnClientInvoke = function(...) return result end"
+                                                                 }
+                                          },
+                       "Instance":  {
+                                        "IsDescendantOf":  {
+                                                               "summary":  "True if this instance is under the given ancestor.",
+                                                               "usage":  "if part:IsDescendantOf(workspace) then ... end"
+                                                           }
+                                    },
+                       "TweenService":  {
+                                            "Create":  {
+                                                           "summary":  "Create a Tween for an instance with goals.",
+                                                           "usage":  "local t = TweenService:Create(inst, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Transparency = 1})"
+                                                       }
+                                        },
+                       "MarketplaceService":  {
+                                                  "ProcessReceipt":  {
+                                                                         "summary":  "Callback to process developer product receipts.",
+                                                                         "usage":  "MarketplaceService.ProcessReceipt = function(receiptInfo) return Enum.ProductPurchaseDecision.PurchaseGranted end"
+                                                                     },
+                                                  "PromptProductPurchase":  {
+                                                                                "summary":  "Prompt a player to purchase a developer product.",
+                                                                                "usage":  "MarketplaceService:PromptProductPurchase(player, productId)"
+                                                                            }
+                                              },
+                       "ContentProvider":  {
+                                               "PreloadAsync":  {
+                                                                    "summary":  "Preload assets to reduce hitches.",
+                                                                    "usage":  "ContentProvider:PreloadAsync({assetOrInstance})"
+                                                                }
+                                           },
+                       "DataStore":  {
+                                         "GetAsync":  {
+                                                          "summary":  "Read key from datastore.",
+                                                          "usage":  "ds:GetAsync(key)"
+                                                      },
+                                         "SetAsync":  {
+                                                          "summary":  "Write key to datastore.",
+                                                          "usage":  "ds:SetAsync(key, value)"
+                                                      },
+                                         "UpdateAsync":  {
+                                                             "summary":  "Atomic update.",
+                                                             "usage":  "ds:UpdateAsync(key, transformFn)"
+                                                         }
+                                     },
+                       "Color3":  {
+                                      "fromRGB":  {
+                                                      "summary":  "Construct Color3 from 0-255 components.",
+                                                      "usage":  "Color3.fromRGB(r,g,b)"
+                                                  },
+                                      "fromHSV":  {
+                                                      "summary":  "Construct Color3 from HSV.",
+                                                      "usage":  "Color3.fromHSV(h,s,v)"
+                                                  }
+                                  },
+                       "UDim2":  {
+                                     "fromOffset":  {
+                                                        "summary":  "Pixels-based size/position.",
+                                                        "usage":  "UDim2.fromOffset(px, py)"
+                                                    },
+                                     "fromScale":  {
+                                                       "summary":  "Scale-based size/position.",
+                                                       "usage":  "UDim2.fromScale(sx, sy)"
+                                                   }
+                                 },
+                       "CFrame":  {
+                                      "Angles":  {
+                                                     "summary":  "Rotation from Euler angles (radians).",
+                                                     "usage":  "CFrame.Angles(rx, ry, rz)"
+                                                 }
+                                  },
+                       "Promise":  {
+                                       "andThen":  {
+                                                       "summary":  "Chain success/failure handlers.",
+                                                       "usage":  "promise:andThen(onResolve, onReject)"
+                                                   },
+                                       "reject":  {
+                                                      "summary":  "Create a rejected Promise.",
+                                                      "usage":  "Promise.reject(reason)"
+                                                  }
+                                   },
+                       "Humanoid":  {
+                                        "Health":  {
+                                                       "summary":  "Current health value.",
+                                                       "usage":  "humanoid.Health = 100"
+                                                   },
+                                        "WalkSpeed":  {
+                                                          "summary":  "Movement speed in studs/sec.",
+                                                          "usage":  "humanoid.WalkSpeed = 16"
+                                                      },
+                                        "MaxHealth":  {
+                                                          "summary":  "Maximum health; set before Health.",
+                                                          "usage":  "humanoid.MaxHealth = 100"
+                                                      },
+                                        "JumpPower":  {
+                                                          "summary":  "Jump impulse strength.",
+                                                          "usage":  "humanoid.JumpPower = 50"
+                                                      }
+                                    },
+                       "BasePart":  {
+                                        "Anchored":  {
+                                                         "summary":  "Locks physics motion when true.",
+                                                         "usage":  "part.Anchored = true"
+                                                     },
+                                        "Size":  {
+                                                     "summary":  "Part dimensions.",
+                                                     "usage":  "part.Size = Vector3.new(x,y,z)"
+                                                 },
+                                        "Position":  {
+                                                         "summary":  "World position.",
+                                                         "usage":  "part.Position = Vector3.new(0,10,0)"
+                                                     },
+                                        "CFrame":  {
+                                                       "summary":  "Full transform.",
+                                                       "usage":  "part.CFrame = CFrame.new(0,5,0)"
+                                                   },
+                                        "CanCollide":  {
+                                                           "summary":  "Enable/disable physical collisions.",
+                                                           "usage":  "part.CanCollide = false"
+                                                       },
+                                        "Transparency":  {
+                                                             "summary":  "0 (opaque) to 1 (invisible).",
+                                                             "usage":  "part.Transparency = 0.5"
+                                                         },
+                                        "Touched":  {
+                                                        "summary":  "Event when another part touches this part.",
+                                                        "usage":  "part.Touched:Connect(function(otherPart) ... end)"
+                                                    },
+                                        "TouchEnded":  {
+                                                           "summary":  "Event when a touching part stops touching.",
+                                                           "usage":  "part.TouchEnded:Connect(function(otherPart) ... end)"
+                                                       }
+                                    },
+                       "PathfindingService":  {
+                                                  "CreatePath":  {
+                                                                     "summary":  "Create a Path object.",
+                                                                     "usage":  "local path = PathfindingService:CreatePath(params)"
+                                                                 }
+                                              },
+                       "Path":  {
+                                    "ComputeAsync":  {
+                                                         "summary":  "Compute path between two points.",
+                                                         "usage":  "path:ComputeAsync(start, goal)"
+                                                     },
+                                    "GetWaypoints":  {
+                                                         "summary":  "Get waypoints after ComputeAsync.",
+                                                         "usage":  "for _,wp in ipairs(path:GetWaypoints()) do ... end"
+                                                     }
+                                },
+                       "RunService":  {
+                                          "Heartbeat":  {
+                                                            "summary":  "Per-frame heartbeat (both contexts).",
+                                                            "usage":  "RunService.Heartbeat:Connect(function(dt) ... end)"
+                                                        },
+                                          "RenderStepped":  {
+                                                                "summary":  "Render step on client.",
+                                                                "usage":  "RunService.RenderStepped:Connect(function(dt) ... end)"
+                                                            }
+                                      },
+                       "UserInputService":  {
+                                                "InputBegan":  {
+                                                                   "summary":  "Event when input begins.",
+                                                                   "usage":  "UserInputService.InputBegan:Connect(function(input, gpe) ... end)"
+                                                               },
+                                                "InputEnded":  {
+                                                                   "summary":  "Event when input ends.",
+                                                                   "usage":  "UserInputService.InputEnded:Connect(function(input, gpe) ... end)"
+                                                               },
+                                                "IsKeyDown":  {
+                                                                  "summary":  "Check if a key is held.",
+                                                                  "usage":  "UserInputService:IsKeyDown(Enum.KeyCode.Space)"
+                                                              },
+                                                "GetMouseLocation":  {
+                                                                         "summary":  "Get current mouse position (pixels).",
+                                                                         "usage":  "local v2 = UserInputService:GetMouseLocation()"
+                                                                     }
+                                            },
+                       "ContextActionService":  {
+                                                    "BindAction":  {
+                                                                       "summary":  "Bind input to a callback.",
+                                                                       "usage":  "ContextActionService:BindAction(\u0027Name\u0027, handler, createTouchBtn, ...keyCodes)"
+                                                                   },
+                                                    "UnbindAction":  {
+                                                                         "summary":  "Remove a bound action.",
+                                                                         "usage":  "ContextActionService:UnbindAction(\u0027Name\u0027)"
+                                                                     }
+                                                },
+                       "Model":  {
+                                     "PivotTo":  {
+                                                     "summary":  "Move model to CFrame position.",
+                                                     "usage":  "model:PivotTo(cframe)"
+                                                 },
+                                     "PrimaryPart":  {
+                                                         "summary":  "Primary part for model transforms.",
+                                                         "usage":  "model.PrimaryPart = part"
+                                                     }
+                                 },
+                       "Camera":  {
+                                      "CFrame":  {
+                                                     "summary":  "Camera transform.",
+                                                     "usage":  "workspace.CurrentCamera.CFrame = cf"
+                                                 },
+                                      "FieldOfView":  {
+                                                          "summary":  "Camera FOV in degrees.",
+                                                          "usage":  "workspace.CurrentCamera.FieldOfView = 70"
+                                                      }
+                                  },
+                       "TextLabel":  {
+                                         "Text":  {
+                                                      "summary":  "Text content of label.",
+                                                      "usage":  "textLabel.Text = \u0027Hello\u0027"
+                                                  },
+                                         "RichText":  {
+                                                          "summary":  "Enable rich text tags in Text.",
+                                                          "usage":  "textLabel.RichText = true"
+                                                      },
+                                         "TextColor3":  {
+                                                            "summary":  "Text color.",
+                                                            "usage":  "textLabel.TextColor3 = Color3.fromRGB(255,255,255)"
+                                                        },
+                                         "TextSize":  {
+                                                          "summary":  "Font size in points.",
+                                                          "usage":  "textLabel.TextSize = 18"
+                                                      },
+                                         "TextScaled":  {
+                                                            "summary":  "Auto-scale text to fit bounds.",
+                                                            "usage":  "textLabel.TextScaled = true"
+                                                        }
+                                     },
+                       "TextButton":  {
+                                          "Activated":  {
+                                                            "summary":  "Event when button is activated (click/tap).",
+                                                            "usage":  "textButton.Activated:Connect(function() ... end)"
+                                                        },
+                                          "AutoButtonColor":  {
+                                                                  "summary":  "Automatic visual feedback on hover/press.",
+                                                                  "usage":  "textButton.AutoButtonColor = true"
+                                                              }
+                                      },
+                       "GuiObject":  {
+                                         "Visible":  {
+                                                         "summary":  "Show/hide UI element.",
+                                                         "usage":  "gui.Visible = true"
+                                                     },
+                                         "Position":  {
+                                                          "summary":  "2D position.",
+                                                          "usage":  "gui.Position = UDim2.fromOffset(x,y)"
+                                                      },
+                                         "Size":  {
+                                                      "summary":  "2D size.",
+                                                      "usage":  "gui.Size = UDim2.fromScale(1,0)"
+                                                  },
+                                         "AnchorPoint":  {
+                                                             "summary":  "UI anchor point (0..1).",
+                                                             "usage":  "gui.AnchorPoint = Vector2.new(.5,.5)"
+                                                         },
+                                         "BackgroundColor3":  {
+                                                                  "summary":  "Background color.",
+                                                                  "usage":  "gui.BackgroundColor3 = Color3.fromRGB(32,32,40)"
+                                                              },
+                                         "BackgroundTransparency":  {
+                                                                        "summary":  "0 (opaque) to 1 (transparent).",
+                                                                        "usage":  "gui.BackgroundTransparency = 0.2"
+                                                                    }
+                                     },
+                       "UIStroke":  {
+                                        "Transparency":  {
+                                                             "summary":  "Stroke transparency (0..1).",
+                                                             "usage":  "uiStroke.Transparency = 0.5"
+                                                         },
+                                        "Color":  {
+                                                      "summary":  "Stroke color.",
+                                                      "usage":  "uiStroke.Color = Color3.fromRGB(255,255,255)"
+                                                  },
+                                        "Thickness":  {
+                                                          "summary":  "Stroke thickness in pixels.",
+                                                          "usage":  "uiStroke.Thickness = 2"
+                                                      }
+                                    },
+                       "UIScale":  {
+                                       "Scale":  {
+                                                     "summary":  "Scale factor applied to UI.",
+                                                     "usage":  "uiScale.Scale = 1.2"
+                                                 }
+                                   },
+                       "ProximityPrompt":  {
+                                               "ActionText":  {
+                                                                  "summary":  "Verb shown to user.",
+                                                                  "usage":  "prompt.ActionText = \u0027Open\u0027"
+                                                              },
+                                               "ObjectText":  {
+                                                                  "summary":  "Object label under the verb.",
+                                                                  "usage":  "prompt.ObjectText = \u0027Chest\u0027"
+                                                              },
+                                               "HoldDuration":  {
+                                                                    "summary":  "Hold time in seconds before trigger.",
+                                                                    "usage":  "prompt.HoldDuration = 0.5"
+                                                                },
+                                               "RequiresLineOfSight":  {
+                                                                           "summary":  "Require clear line of sight.",
+                                                                           "usage":  "prompt.RequiresLineOfSight = true"
+                                                                       }
+                                           },
+                       "Beam":  {
+                                    "Attachment0":  {
+                                                        "summary":  "Start attachment.",
+                                                        "usage":  "beam.Attachment0 = a0"
+                                                    },
+                                    "Attachment1":  {
+                                                        "summary":  "End attachment.",
+                                                        "usage":  "beam.Attachment1 = a1"
+                                                    },
+                                    "Width0":  {
+                                                   "summary":  "Width at start.",
+                                                   "usage":  "beam.Width0 = 0.2"
+                                               },
+                                    "Width1":  {
+                                                   "summary":  "Width at end.",
+                                                   "usage":  "beam.Width1 = 0.2"
+                                               },
+                                    "Texture":  {
+                                                    "summary":  "Texture asset id.",
+                                                    "usage":  "beam.Texture = \u0027rbxassetid://...\u0027"
+                                                }
+                                },
+                       "Trail":  {
+                                     "Attachment0":  {
+                                                         "summary":  "Start attachment.",
+                                                         "usage":  "trail.Attachment0 = a0"
+                                                     },
+                                     "Attachment1":  {
+                                                         "summary":  "End attachment.",
+                                                         "usage":  "trail.Attachment1 = a1"
+                                                     },
+                                     "Lifetime":  {
+                                                      "summary":  "Seconds trail persists.",
+                                                      "usage":  "trail.Lifetime = 0.4"
+                                                  },
+                                     "Color":  {
+                                                   "summary":  "Gradient along trail.",
+                                                   "usage":  "trail.Color = ColorSequence.new(Color3.new(1,1,1))"
+                                               },
+                                     "Enabled":  {
+                                                     "summary":  "Turn emission on/off.",
+                                                     "usage":  "trail.Enabled = true"
+                                                 }
+                                 },
+                       "ParticleEmitter":  {
+                                               "Rate":  {
+                                                            "summary":  "Particles per second.",
+                                                            "usage":  "emitter.Rate = 10"
+                                                        },
+                                               "Lifetime":  {
+                                                                "summary":  "Min/max lifetime seconds.",
+                                                                "usage":  "emitter.Lifetime = NumberRange.new(1,2)"
+                                                            },
+                                               "Texture":  {
+                                                               "summary":  "Texture asset id.",
+                                                               "usage":  "emitter.Texture = \u0027rbxassetid://...\u0027"
+                                                           },
+                                               "Speed":  {
+                                                             "summary":  "Min/max speed studs/s.",
+                                                             "usage":  "emitter.Speed = NumberRange.new(2,6)"
+                                                         }
+                                           },
+                       "Sound":  {
+                                     "SoundId":  {
+                                                     "summary":  "Asset id of the sound.",
+                                                     "usage":  "sound.SoundId = \u0027rbxassetid://...\u0027"
+                                                 },
+                                     "Volume":  {
+                                                    "summary":  "Playback volume (0..10).",
+                                                    "usage":  "sound.Volume = 0.5"
+                                                },
+                                     "Play":  {
+                                                  "summary":  "Start playback.",
+                                                  "usage":  "sound:Play()"
+                                              }
+                                 },
+                       "table":  {
+
+                                 },
+                       "RBXScriptConnection":  {
+
+                                               },
+                       "InputObject":  {
+
+                                       },
+                       "RaycastParams":  {
+
+                                         },
+                       "UnitRay":  {
+
+                                   },
+                       "Ray":  {
+
+                               },
+                       "Profile":  {
+
+                                   }
+                   }
+}
