@@ -80,6 +80,18 @@
 
 **If using a local model, confirm the model path and format match what your runner supports. Some formats require extra runtimes.**
 
+***Hosted API Authentication / 401 Errors***
+
+**Double-check the key/model fields in the Settings drawer. OpenAI and OpenRouter each expect their own key + model names, while OpenAI-compatible endpoints also need the full base URL. Keys are cached locally per browser; clearing them resets the fields. If you rotate keys, re-enter them and restart web_ui.py.**
+
+***Context Length or Prompt Clamp Warnings***
+
+**Ollama/local llama.cpp paths accept up to ~12M tokens, but hosted endpoints are capped at 204k tokens. If you see clamp warnings, trim the question, reduce the number of pinned docs, or switch to a local backend. External providers will automatically truncate prompts to stay under the limit.**
+
+***Stale Embeddings / Catalog***
+
+**After adding or removing Docs/*.md files, rerun the setup scripts (`setup_verify.py` and `api_validator.py`) to rebuild embeddings and the catalog. The UI caches context counts until the next reload, so restarting `web_ui.py` ensures fresh stats.**
+
 # ***-- Notes --***
 
 **This project is intended for personal or educational use. I didn't make this to replace developers, i made it to teach and make it easier for people to learn. Don't use it to replace developers. TLDR; don't be a dirtbag, you dingus.**
