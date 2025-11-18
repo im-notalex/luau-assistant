@@ -12,7 +12,7 @@
 
 - This project is a lightweight local assistant designed for Roblox LuaU scripting and API reference. It uses locally stored documentation and an embedding-based search system to provide instant lookups, explanations, and examples without relying on cloud models.
 
-- Yes, this was made with the 'assistance' of AI. AI for AI? i dunno, but i did make a good portion. :]
+- Yes, this was made with the 'assistance' of AI. AI for AI? i dunno, but i did make a good portion. :] (AKA A LOT THIS S%$T F!@^@#G BLOWS!!!)
 
 # ***-- Requirements --***
 
