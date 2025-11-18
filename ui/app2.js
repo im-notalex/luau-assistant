@@ -18,6 +18,46 @@ const state = {
   typingBubble: null,
 };
 
+const API_BASE_META_VALUE = (() => {
+  if (typeof document === "undefined") return "";
+  const meta = document.querySelector('meta[name="api-base"]');
+  return meta?.content?.trim() || "";
+})();
+
+const API_BASE_URL = (() => {
+  const origin =
+    typeof window !== "undefined" && window.location && window.location.origin && window.location.origin !== "null"
+      ? window.location.origin
+      : "";
+  if (!API_BASE_META_VALUE) {
+    return origin;
+  }
+  if (typeof window !== "undefined" && window.location) {
+    try {
+      return new URL(API_BASE_META_VALUE, window.location.href).toString().replace(/\/$/, "");
+    } catch {
+      const trimmed = API_BASE_META_VALUE.replace(/\/$/, "");
+      if (trimmed.startsWith("/")) {
+        return origin ? `${origin}${trimmed}` : trimmed;
+      }
+      return trimmed;
+    }
+  }
+  return API_BASE_META_VALUE.replace(/\/$/, "");
+})();
+
+function buildApiUrl(path) {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (API_BASE_URL) {
+    return `${API_BASE_URL}${normalized}`;
+  }
+  return normalized;
+}
+
+function apiFetch(path, options) {
+  return fetch(buildApiUrl(path), options);
+}
+
 const STORAGE_KEYS = {
   backend: "rag.ui.backend",
   openaiKey: "rag.ui.openaiKey",
@@ -154,7 +194,7 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // ---------- Status ----------
 async function updateStatus() {
   try {
-    const res = await fetch("/api/status");
+    const res = await apiFetch("/api/status");
     const data = await res.json();
     const backend = currentBackend();
     const tag = $("modelTag");
@@ -194,13 +234,22 @@ function updateBackendVisibility() {
   const isOpenAI = backend === "openai";
   const isOpenRouter = backend === "openrouter";
   const isCompat = backend === "openai_compat";
-  if ($("openaiKeyRow")) $("openaiKeyRow").style.display = isOpenAI ? "" : "none";
-  if ($("openaiModelRow")) $("openaiModelRow").style.display = isOpenAI ? "" : "none";
-  if ($("orKeyRow")) $("orKeyRow").style.display = isOpenRouter ? "" : "none";
-  if ($("orModelRow")) $("orModelRow").style.display = isOpenRouter ? "" : "none";
-  if ($("compatBaseRow")) $("compatBaseRow").style.display = isCompat ? "" : "none";
-  if ($("compatKeyRow")) $("compatKeyRow").style.display = isCompat ? "" : "none";
-  if ($("compatModelRow")) $("compatModelRow").style.display = isCompat ? "" : "none";
+  const setRow = (id, show) => {
+    const node = $(id);
+    if (!node) return;
+    if (!node.dataset.defaultDisplay || node.dataset.defaultDisplay === "none") {
+      const computed = typeof window !== "undefined" && window.getComputedStyle ? window.getComputedStyle(node).display : "";
+      node.dataset.defaultDisplay = computed && computed !== "none" ? computed : "flex";
+    }
+    node.style.display = show ? node.dataset.defaultDisplay : "none";
+  };
+  setRow("openaiKeyRow", isOpenAI);
+  setRow("openaiModelRow", isOpenAI);
+  setRow("orKeyRow", isOpenRouter);
+  setRow("orModelRow", isOpenRouter);
+  setRow("compatBaseRow", isCompat);
+  setRow("compatKeyRow", isCompat);
+  setRow("compatModelRow", isCompat);
 }
 
 function toggleCacheBadge(id, shouldShow) {
@@ -529,7 +578,7 @@ function renderChatHistory() {
 
 async function fetchChats() {
   try {
-    const res = await fetch("/api/chats");
+    const res = await apiFetch("/api/chats");
     const data = await res.json();
     state.chats = data.chats || [];
     renderChatHistory();
@@ -539,7 +588,7 @@ async function fetchChats() {
 async function loadChat(chatId) {
   if (!chatId) return;
   try {
-    const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
+    const res = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`);
     const data = await res.json();
     state.chatId = data.id;
     renderChatHistory();
@@ -549,7 +598,7 @@ async function loadChat(chatId) {
 
 async function startNewChat() {
   try {
-    const res = await fetch("/api/new_chat", { method: "POST" });
+    const res = await apiFetch("/api/new_chat", { method: "POST" });
     const data = await res.json();
     state.chatId = data.id;
     await Promise.all([fetchChats(), fetchDocs()]);
@@ -561,13 +610,13 @@ async function startNewChat() {
 async function clearChat() {
   if (!state.chatId) return;
   try {
-    await fetch(`/api/clear_chat?chat_id=${encodeURIComponent(state.chatId)}`, { method: "POST" });
+    await apiFetch(`/api/clear_chat?chat_id=${encodeURIComponent(state.chatId)}`, { method: "POST" });
     await loadChat(state.chatId);
   } catch (_) { /* ignore */ }
 }
 
 function exportChat() {
-  if (state.chatId) window.open(`/api/chats/${encodeURIComponent(state.chatId)}`, "_blank");
+  if (state.chatId) window.open(buildApiUrl(`/api/chats/${encodeURIComponent(state.chatId)}`), "_blank");
 }
 
 async function handleSend() {
@@ -609,7 +658,7 @@ async function handleSend() {
 
 async function sendOnce(payload) {
   try {
-    const res = await fetch("/api/chat", {
+    const res = await apiFetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -631,7 +680,7 @@ async function sendStream(payload) {
   state.streamController = controller;
   let accumulated = "";
   try {
-    const res = await fetch("/api/chat_stream", {
+    const res = await apiFetch("/api/chat_stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -683,7 +732,7 @@ async function forceStop() {
   try {
     state.streamController?.abort();
     if (state.chatId) {
-      await fetch("/api/cancel", {
+      await apiFetch("/api/cancel", {
         method: "POST",
         headers:{ "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: state.chatId }),
@@ -707,7 +756,7 @@ function formatPerf(perf) {
 // ---------- Docs ----------
 async function fetchDocs() {
   try {
-    const res = await fetch("/api/docs_list");
+    const res = await apiFetch("/api/docs_list");
     const data = await res.json();
     state.docs = data.files || [];
     renderDocsTree(state.docs);
@@ -794,7 +843,7 @@ function highlightSelectedDoc() {
 async function loadDoc(path) {
   try {
     const rel = path && path.startsWith("Docs/") ? path : `Docs/${path || ""}`;
-    const res = await fetch(`/api/docs_read?path=${encodeURIComponent(rel)}`);
+    const res = await apiFetch(`/api/docs_read?path=${encodeURIComponent(rel)}`);
     const data = await res.json();
     const viewer = $("docView");
     if (!viewer) return;
@@ -975,7 +1024,7 @@ function resolveTooltipEntry(keyOrLabel) {
 async function loadTooltips() {
   if (state.tooltips) return;
   try {
-    const res = await fetch("/api/tooltips");
+    const res = await apiFetch("/api/tooltips");
     const data = await res.json();
     state.tooltips = data || {};
     state.tooltipKeys = [];
@@ -1245,8 +1294,10 @@ function attachHandlers() {
   $("bestPractice")?.addEventListener("change", () => {
     if (state.activeTooltipKey) updateTooltipDetail(state.activeTooltipKey);
   });
+  $("backendSel")?.addEventListener("change", updateBackendVisibility);
   setupCacheListeners();
   bindDrawerTriggers();
+  updateBackendVisibility();
 }
 
 // ---------- Initialization ----------
