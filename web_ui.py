@@ -86,6 +86,20 @@ app = FastAPI(title="LuaU RAG HTTP UI")
 _cancel_flags: Dict[str, bool] = {}
 
 
+def mount_static_ui():
+    """Ensure the front-end assets are mounted so / serves index.html."""
+    if getattr(app.state, "_ui_mounted", False):
+        return
+    if (UI_DIR / "index.html").exists():
+        app.mount("/", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
+        app.state._ui_mounted = True
+
+
+@app.on_event("startup")
+def startup_mount_ui():
+    mount_static_ui()
+
+
 @app.get("/api/status")
 def api_status():
     # Try to load API dump status for UI display
@@ -581,15 +595,14 @@ def api_tooltips():
             "globals": {}, "keywords": {}, "enums": {}, "properties": {}, "symbols": {}
         }, status_code=200)
 
-    ## psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :)
+## psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :)
 def json_dumps_line(obj):
     return json_dumps(obj, ensure_ascii=False) + "\n"
 
 
 def main():
     # Mount static UI last so that /api routes take precedence
-    if (UI_DIR / "index.html").exists():
-        app.mount("/", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
+    mount_static_ui()
     # Attempt to load/ensure API dump at startup so status shows immediately
     try:
         from api_validator import ensure_api_dump as _ensure
@@ -610,5 +623,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
