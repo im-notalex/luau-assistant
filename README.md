@@ -12,6 +12,8 @@
 
 - This project is a lightweight local assistant designed for Roblox LuaU scripting and API reference. It uses locally stored documentation and an embedding-based search system to provide instant lookups, explanations, and examples without relying on cloud models.
 
+- Yes, this was made with the 'assistance' of AI. AI for AI? i dunno, but i did make a good portion. :]
+
 # ***-- Requirements --***
 
 **Make sure you have Python 3.10 or newer installed and the required packages.**
@@ -39,6 +41,8 @@
 
 **Make sure your markdown and documentation files are inside the Docs/ directory before running the setup scripts.**
 
+**In the web UI Settings panel you can choose between Local, Ollama, OpenAI, OpenRouter, or any OpenAI-compatible endpoint (provide base URL, key, and model). External endpoints automatically enforce the 204k-token context cap, while Ollama/local models keep the full 12M-token window.**
+
 # ***-- Features --***
 
 **Inline LuaU and Roblox API reference**
@@ -47,7 +51,8 @@
 
 **Fast lookup using embeddings**
 
-**Works with local LLMs and OpenRouter models**
+**Works with local LLMs, OpenRouter, and any OpenAI-compatible endpoint (Groq, Anthropic, Google, etc.)**
+**12M-token context for Ollama/local models (external endpoints capped at 204k tokens for safety)**
 
 **Tooltip-friendly data for development**
 
