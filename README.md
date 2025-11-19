@@ -27,11 +27,12 @@
 **Before running the assistant, run the setup scripts in order:**
 
 > python setup_verify.py
+
 > python api_validator.py
 
 **After both scripts finish, start the web interface:**
 
-> python web_ui.py=
+> python web_ui.py
 
 **This opens the assistant interface in your browser.**
 
