@@ -121,7 +121,7 @@ def get_embedder():
         _EMBEDDER = SentenceTransformer(EMBED_MODEL)
     return _EMBEDDER
 
-def get_context_and_sources(question, top_k=TOP_K):
+def get_context_and_sources(question, top_k=TOP_K, max_context_tokens=None):
     """Retrieve concatenated context text and a list of source identifiers."""
     embedder = get_embedder()
     q_emb = embedder.encode([question])[0]
@@ -230,8 +230,16 @@ def get_context_and_sources(question, top_k=TOP_K):
 
     combined = "\n\n".join(docs)
     # trim to avoid extremely long prompts
-    if len(combined) > CHUNK_PROMPT_SIZE:
-        combined = combined[:CHUNK_PROMPT_SIZE] + "\n\n... (truncated) ..."
+    max_chars = CHUNK_PROMPT_SIZE
+    effective_max_context_tokens = max_context_tokens
+    if max_context_tokens and max_context_tokens < 10000:
+        # For hosted backends, prevent context starvation; fallback to reasonable minimum
+        effective_max_context_tokens = 50000  # 50k tokens ~200k chars
+        print(f"Warning: max_context_tokens ({max_context_tokens}) too low for hosted backends; using {effective_max_context_tokens} to ensure context quality.")
+    if effective_max_context_tokens and effective_max_context_tokens >= 10000:
+        max_chars = min(max_chars, effective_max_context_tokens * APPROX_CHARS_PER_TOKEN)
+    if len(combined) > max_chars:
+        combined = combined[:max_chars] + "\n\n... (truncated) ..."
 
     # Collect readable source labels (deduped, preserve order)
     sources = []
@@ -288,50 +296,69 @@ def lint_luau_snippets(answer_text: str):
 
     ## psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :)
 def sanitize_answer(text: str) -> str:
-    """Normalize model output for UI: enforce lua fences, strip apologies/timeouts, fix luau->lua fences."""
-    try:
-        import re
-        if not text:
-            return text
-        out = text
-        # Remove generic apologies/meta lines anywhere (conservative)
-        out = re.sub(r"^\s*.*\b(as an ai|i (?:do\s*not|don't) have access|cannot browse|no internet|no (?:access|browsing))\b.*$",
-                     "", out, flags=re.IGNORECASE | re.MULTILINE)
-        out = re.sub(r"\bdeepseek\b", "", out, flags=re.IGNORECASE)
-        # Replace ```luau with ```lua
-        out = re.sub(r"```\s*luau", "```lua", out, flags=re.IGNORECASE)
-        # Remove "Answer:" lead-in and any "[via ollama]" noise
-        out = re.sub(r"^\s*answer\s*:\s*", "", out, flags=re.IGNORECASE)
-        out = re.sub(r"\[\s*via\s+ollama\s*\]", "", out, flags=re.IGNORECASE)
-        # Drop timeout lines
-        out = re.sub(r"^.*timed out after \d+ seconds.*$", "", out, flags=re.IGNORECASE | re.MULTILINE)
-        # Remove leading acknowledgments/greetings and invitations
-        lines = out.splitlines()
-        cleaned = []
-        skip_prefix = True
-        for ln in lines:
-            if skip_prefix and re.match(r"^\s*(assistant\s*)?$", ln, flags=re.IGNORECASE):
-                continue
-            # Generic acknowledgments and greetings (even with trailing text)
-            if skip_prefix and re.match(r"^\s*(i\s*understand\b.*|i'?m\s+ready\b.*|i\s+am\s+ready\b.*|as\s+an\s+assistant\b.*|sure[\.!]?.*|okay[\.!]?.*|ok[\.!]?.*|hello\b.*|hi\b.*|hey\b.*)\s*$", ln, flags=re.IGNORECASE):
-                continue
-            # "Please provide your prompt", "What would you like me to (assist|help) you with?", "How can I help?"
-            if skip_prefix and re.search(r"\b(please\s+provide|what\s+would\s+you\s+like\s+me\s+to\s+(assist|help)(\s+you)?\s+with|how\s+can\s+i\s+help|let\s+me\s+know)\b", ln, flags=re.IGNORECASE):
-                continue
-            skip_prefix = False
-            cleaned.append(ln)
-        out = "\n".join(cleaned)
-        # Also remove a trailing standalone invitation line if present at the end
-        out = re.sub(r"\n\s*(what\s+would\s+you\s+like\s+me\s+to\s+(assist|help)(\s+you)?\s+with\??)\s*$", "", out, flags=re.IGNORECASE)
-        # Remove external URLs from References or body (only allow internal file paths)
-        out = re.sub(r"https?://\S+", "", out)
-        # Ensure code fences balanced: if odd number of fences, append closing
-        fence_count = len(re.findall(r"```", out))
-        if fence_count % 2 == 1:
-            out += "\n```\n"
-        return out.strip()
-    except Exception:
+    """
+    A SAFE sanitizer: only removes *actual* unwanted meta lines.
+    It will NEVER wipe regular content or accidentally match words like "no", "not", "none".
+    """
+
+    import re
+
+    if not text:
         return text
+
+    raw = text  # keep a copy for debugging
+
+    # --------------------------
+    # SAFE removal rules (strict)
+    # --------------------------
+
+    lines = raw.splitlines()
+    cleaned = []
+
+    # Patterns that are safe to remove ONLY when they match *the entire line*
+    REMOVE_FULL_LINE = [
+        r"^\s*as an ai\b.*$",
+        r"^\s*i (?:do not|don't) have access\b.*$",
+        r"^\s*i cannot browse\b.*$",
+        r"^\s*i have no browsing\b.*$",
+        r"^\s*cannot browse the internet\b.*$",
+        r"^\s*no internet access\b.*$",
+        r"^\s*sorry\b.*$",
+        r"^\s*apologies\b.*$",
+        r"^\s*assistant\s*$",
+    ]
+
+    rm = [re.compile(p, flags=re.IGNORECASE) for p in REMOVE_FULL_LINE]
+
+    for ln in lines:
+        stripped = ln.strip()
+
+        # If line is empty or whitespace, just keep it
+        if not stripped:
+            cleaned.append(ln)
+            continue
+
+        # Only remove lines that match EXACT harmful meta sentences
+        drop = any(rx.match(stripped) for rx in rm)
+        if drop:
+            continue
+
+        cleaned.append(ln)
+
+    out = "\n".join(cleaned)
+
+    # Fix Luau/Lua formatting
+    out = re.sub(r"```\s*luau", "```lua", out, flags=re.IGNORECASE)
+
+    # Balance backticks (but never delete content)
+    fence_count = len(re.findall(r"```", out))
+    if fence_count % 2 == 1:
+        out += "\n```"
+
+    # Remove long external URLs (optional, but safe)
+    out = re.sub(r"https?://[^\s)]+", "", out)
+
+    return out.strip()
 
 def select_backend():
     """Choose backend using environment preferences and availability."""
@@ -428,7 +455,7 @@ def _load_docs_catalog():
 
 _load_docs_catalog()
 
-def prepare_prompt(question, plan_mode=False, plan_iters=2, strict_mode=False, retr_top_k: int = TOP_K, pinned_path: str = None, pinned_paths: list = None, debug_no_guidelines: bool = False, pins_only: bool = False):
+def prepare_prompt(question, plan_mode=False, plan_iters=2, strict_mode=False, retr_top_k: int = TOP_K, max_context_tokens: int = None, pinned_path: str = None, pinned_paths: list = None, debug_no_guidelines: bool = False, pins_only: bool = False):
     """Retrieve context, optionally plan, and build the final prompt. Returns (prompt, sources, plan_steps)."""
     ctx = ''
     ctx_sources = []
@@ -532,7 +559,7 @@ def prepare_prompt(question, plan_mode=False, plan_iters=2, strict_mode=False, r
         ctx_sources = pinned_sources[:]
         # Do not perform retrieval when pins_only
     else:
-        ctx, ctx_sources = get_context_and_sources(question, top_k=retr_top_k)
+        ctx, ctx_sources = get_context_and_sources(question, top_k=retr_top_k, max_context_tokens=max_context_tokens)
 
     # Nudge towards Roblox-correct benchmarking if query suggests it
     try:
@@ -657,26 +684,10 @@ def call_llama_cpp(prompt, max_tokens=512):
     return (f"llama.cpp binary not found at {LLAMA_CPP_BIN}.\nYou can set LLAMA_CPP_BIN environment variable to the full path of your llama.cpp main executable, or install/build llama.cpp. Alternatively, ensure 'ollama' is installed and available - the system can fallback to Ollama if configured.", diagnostics)
 
 
-def call_ollama(prompt, max_tokens=512, model_name=None, temperature=0.7, gen_options=None):
-    """Call Ollama CLI with improved error handling and response validation."""
-    diagnostics = {
-        'tool': 'ollama',
-        'cmd': None,
-        'stdout': None,
-        'stderr': None,
-        'returncode': None,
-        'error': None,
-    }
-
-    # Use default model if none specified
-    if model_name is None:
-        model_name = OLLAMA_MODEL
-
-    # Check if Ollama is installed
-    ollama_path = shutil.which("ollama")
-    if not ollama_path:
-        diagnostics['error'] = "ERROR: Ollama CLI not found on PATH. Install Ollama or provide llama.cpp."
-        return (diagnostics['error'], diagnostics)
+def ansi_strip(s):
+    import re
+    ansi_re = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_re.sub('', s)
 
     def check_model_availability():
         """Check if the model is available in Ollama."""
@@ -1005,6 +1016,54 @@ def call_openrouter_stream(prompt: str, temperature: float = 0.7, api_key: str =
     except Exception:
         yield ""
         return
+
+def call_openai_compat_stream(prompt: str, temperature: float = 0.7, api_key: str = None, model: str = None, base_url: str = None):
+    """Yield chunks from OpenAI-compatible streaming endpoint."""
+    key = api_key or OPENAI_COMPAT_API_KEY or os.environ.get('OPENAI_COMPAT_API_KEY', '')
+    mdl = model or OPENAI_COMPAT_MODEL
+    endpoint = _build_openai_compat_endpoint(base_url or OPENAI_COMPAT_BASE_URL or os.environ.get('OPENAI_COMPAT_BASE_URL', ''))
+    if not key or not endpoint:
+        yield ""
+        return
+    headers = {"Content-Type": "application/json"}
+    header_name = (OPENAI_COMPAT_AUTH_HEADER or "Authorization").strip()
+    auth_scheme = (OPENAI_COMPAT_AUTH_SCHEME or "Bearer").strip()
+    if header_name:
+        if auth_scheme:
+            headers[header_name] = f"{auth_scheme} {key}".strip()
+        else:
+            headers[header_name] = key
+    body = {
+        "model": mdl,
+        "temperature": float(temperature),
+        "stream": True,
+        "messages": [
+            {"role": "system", "content": "You are a precise LuaU/Roblox engineer. Follow the user's prompt strictly."},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    try:
+        sess = _make_session(verify=OPENAI_COMPAT_VERIFY_SSL)
+        with sess.post(endpoint, json=body, headers=headers, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            for line in r.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                if line.startswith('data: '):
+                    line = line[len('data: '):].strip()
+                if line == '[DONE]':
+                    break
+                try:
+                    import json as _json
+                    obj = _json.loads(line)
+                    delta = ((obj.get('choices') or [{}])[0].get('delta') or {}).get('content', '')
+                    if delta:
+                        yield delta
+                except Exception:
+                    continue
+    except Exception:
+        yield ""
+        return
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     body = {
         "model": mdl,
@@ -1107,6 +1166,7 @@ def ask(
     strict_mode=False,
     gen_options=None,
     retr_top_k: int = TOP_K,
+    max_context_tokens: int = None,
     pinned_path: str = None,
     pinned_paths: list = None,
     pins_only: bool = False,
@@ -1160,7 +1220,7 @@ def ask(
         ctx = pinned_block
         ctx_sources = pinned_sources[:]
     else:
-        ctx, ctx_sources = get_context_and_sources(question, top_k=retr_top_k)
+        ctx, ctx_sources = get_context_and_sources(question, top_k=retr_top_k, max_context_tokens=max_context_tokens)
 
     prompt = build_guidelines() + f"""
 
@@ -1654,5 +1714,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
