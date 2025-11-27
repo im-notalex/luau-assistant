@@ -170,7 +170,8 @@ def api_chat(
     repeat_penalty: float = Body(None),
     freq_penalty: float = Body(None),
     retr_k: int = Body(None),
-):
+    max_context_tokens: int = Body(None),
+ ):
     message = (message or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="Empty message")
@@ -201,6 +202,7 @@ def api_chat(
         pinned_path=pinned_path,
         pinned_paths=pinned_paths,
         pins_only=pins_only_flag,
+        max_context_tokens=max_context_tokens,
     )
 
     import time
@@ -217,6 +219,7 @@ def api_chat(
         pins_only=pins_only_flag,
         gen_options=gen_opts,
         retr_top_k=eff_retr_k or None,
+        max_context_tokens=max_context_tokens,
         backend_override=(backend or None),
         openai_key=(openai_key or None),
         openrouter_key=(openrouter_key or None),
@@ -282,7 +285,8 @@ def api_chat_stream(
     repeat_penalty: float = Body(None),
     freq_penalty: float = Body(None),
     retr_k: int = Body(None),
-):
+    max_context_tokens: int = Body(None),
+ ):
     message = (message or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="Empty message")
@@ -309,6 +313,7 @@ def api_chat_stream(
         pinned_path=pinned_path,
         pinned_paths=pinned_paths,
         pins_only=pins_only_flag,
+        max_context_tokens=max_context_tokens,
     )
 
     if not chosen:
@@ -367,6 +372,24 @@ def api_chat_stream(
                     if txt:
                         acc.append(txt)
                         yield json_dumps({"type":"chunk","text":txt}, ensure_ascii=False) + "\n"
+            elif use_stream and chosen == 'openai_compat':
+                from luau_rag import call_openai_compat_stream as _oc_stream
+                had_chunk = False
+                bounded = clamp_prompt_for_backend(prompt, 'openai')
+                for chunk in _oc_stream(bounded, temperature=temperature, api_key=(openai_compat_key or None), model=(openai_compat_model or None), base_url=(openai_compat_base_url or None)):
+                    if chat_id and _cancel_flags.get(chat_id):
+                        _cancel_flags.pop(chat_id, None)
+                        break
+                    if chunk:
+                        acc.append(chunk)
+                        had_chunk = True
+                        yield json_dumps({"type":"chunk","text":chunk}, ensure_ascii=False) + "\n"
+                if not had_chunk:
+                    from luau_rag import call_openai_compat as _oc_call
+                    txt, _diag = _oc_call(bounded, temperature=temperature, api_key=(openai_compat_key or None), model=(openai_compat_model or None), base_url=(openai_compat_base_url or None))
+                    if txt:
+                        acc.append(txt)
+                        yield json_dumps({"type":"chunk","text":txt}, ensure_ascii=False) + "\n"
             else:
                 # For non-stream, allow any backend as chosen; be robust to return shape
                 res = ask(
@@ -381,6 +404,7 @@ def api_chat_stream(
                     pins_only=pins_only_flag,
                     gen_options=gen_opts,
                     retr_top_k=eff_retr_k,
+                    max_context_tokens=max_context_tokens,
                     backend_override=chosen,
                     openai_key=(openai_key or None),
                     openrouter_key=(openrouter_key or None),
@@ -411,10 +435,10 @@ def api_chat_stream(
                 try:
                     sanitized = sanitize_answer(full)
                     # if sanitizer removed everything, keep original so UI shows something
-                    full = sanitized if sanitized.strip() else (full or "(no content)")
+                    full = sanitized if sanitized.strip() else (full or "No response generated. Check your context settings or backend configuration.")
                 except Exception:
                     if not full:
-                        full = "(no content)"
+                        full = "No response generated. Check your context settings or backend configuration."
                 hist = load_chat(chat_id) if chat_id else []
                 hist = hist + [{"role": "user", "content": message}, {"role": "assistant", "content": full}]
                 cid = save_chat(hist, chat_id)
