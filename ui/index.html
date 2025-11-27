@@ -188,6 +188,7 @@
                     <label title="Discourage repetition; 1.0 = off">Repeat penalty <input type="number" id="setRep" min="0" max="2" step="0.01" placeholder="(default: 1.1)" /></label>
                     <label title="Penalize frequent tokens; 0.0-0.5 typical">Freq penalty <input type="number" id="setFreq" min="-2" max="2" step="0.01" placeholder="(default: 0.0)" /></label>
                     <label title="How many documents to retrieve before answering">Retrieval Top K <input type="number" id="setRetrK" min="1" max="20" value="5" /></label>
+                    <label title="Maximum context tokens to include in the prompt">Max Context Tokens <input type="number" id="setMaxContextTokens" min="10000" max="12000000" value="3000000" /></label>
                   </div>
                   <div class="row"><button id="resetSettingsBtn">Reset to defaults</button></div>
                   <small>Changes apply to the next message. Content length is capped at <span id="capVal">500000</span> characters.</small>
