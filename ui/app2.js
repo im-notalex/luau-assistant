@@ -526,6 +526,7 @@ function buildPayload(message) {
     repeat_penalty: numericValue("setRep"),
     freq_penalty: numericValue("setFreq"),
     retr_k: parseInt(($("setRetrK")?.value || "5"), 10) || 5,
+    max_context_tokens: Math.max(10000, parseInt(($("setMaxContextTokens")?.value || "3000000"), 10) || 3000000),
     pinned_paths: state.pinnedPaths.slice(),
     pins_only: !!$("pinsOnly")?.checked,
     backend: ($("backendSel")?.value || "").trim(),
