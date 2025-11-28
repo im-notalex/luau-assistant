@@ -6,7 +6,7 @@
 [![OpenRouter](https://img.shields.io/badge/OpenRouter-API-blue?logo=serverless&logoColor=white)](https://openrouter.ai)
 [![HuggingFace](https://img.shields.io/badge/HuggingFace-API-blue?logo=serverless&logoColor=white)](https://huggingface.co)
 [![OpenAI](https://img.shields.io/badge/OpenAI-API-blue?logo=serverless&logoColor=white)](https://openai.com)
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github&logoColor=white)](https://github.com/im-notalex/luau-assistant)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github&logoColor=white)](https://github.com/im-notalex/luau-assistant/releases)
 
 # ***LuaU RAG Assistant***
 
