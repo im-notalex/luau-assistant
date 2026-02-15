@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment/secrets
+.env
+.env.*
+*.env
+*.key
+*.pem
+secrets.json
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Runtime/generated data
+logs/
+chroma/
+*.sqlite3
+*.db
+*.log
+
+# Local model artifacts
+models/*.gguf
+models/*.bin
+models/*.safetensors
+
+# Data
+Docs/
+models/
+ui/
