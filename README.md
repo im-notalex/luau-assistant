@@ -84,4 +84,4 @@ Configure provider keys/models in the Settings drawer. Keys are stored locally i
 
 ## License
 
-MIT. See `LICENSE`.
+AGPL v3.0. See `LICENSE`.
