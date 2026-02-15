@@ -1,7 +1,7 @@
 # LuaU RAG Assistant
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.11x-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Sentence Transformers](https://img.shields.io/badge/SentenceTransformers-Embeddings-FF6F00)](https://www.sbert.net/)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector%20Store-7C3AED)](https://www.trychroma.com/)
