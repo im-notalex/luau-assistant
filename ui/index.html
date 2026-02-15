@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>assistant v2.4.2</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="brand">rag</div>
+          <div class="topbar-status">
+            <div class="subtitle" id="modelTag"></div>
+            <div class="perf" id="perf"></div>
+            <span id="bpBadge" class="badge" style="display:none">Best Practice</span>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button id="historyBtn" type="button" class="icon-btn" title="Conversations">History</button>
+          <button id="docsBtn" type="button" class="icon-btn" title="Docs &amp; tooltips">Docs</button>
+          <button id="settingsBtn" type="button" class="icon-btn" title="Settings">Settings</button>
+        </div>
+      </header>
+
+      <main class="chat-shell">
+        <section class="chat-board">
+          <div class="chat-title">speak to the assistant here</div>
+          <div id="chat" class="chat"></div>
+          <div class="composer">
+            <textarea id="msg" rows="3" placeholder="type, change settings, and send."></textarea>
+            <div class="controls">
+              <button id="send" class="primary">Send</button>
+              <button id="stop" style="display:none">Stop</button>
+              <span id="pinnedBadge" class="badge"></span>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="drawer" id="historyDrawer" aria-hidden="true">
+      <div class="drawer-overlay" data-close="historyDrawer"></div>
+      <div class="drawer-surface">
+        <div class="drawer-head">
+          <span>Chat history</span>
+          <button type="button" class="icon-btn close-btn" data-close="historyDrawer">Close</button>
+        </div>
+        <div class="drawer-body">
+          <div class="section">
+            <div class="section-title">Conversations</div>
+            <div id="chatList" class="history-list"></div>
+            <div class="history-actions">
+              <button id="newChatBtn" class="primary">new chat</button>
+              <button id="clearChatBtn">clear</button>
+              <button id="exportBtn">export chat</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer" id="settingsDrawer" aria-hidden="true">
+      <div class="drawer-overlay" data-close="settingsDrawer"></div>
+      <div class="drawer-surface">
+        <div class="drawer-head">
+          <span>Settings</span>
+          <button type="button" class="icon-btn close-btn" data-close="settingsDrawer">Close</button>
+        </div>
+        <div class="drawer-body">
+          <div class="settings-stack">
+            <section class="settings-group">
+              <div class="settings-group-title">Model access</div>
+              <div class="settings-group-body">
+                <div class="setting-preamble">
+                  <div class="setting-heading">
+                    <span>Backend &amp; keys</span>
+                    <button id="clearCredsBtn" type="button" class="mini-btn">Clear cached values</button>
+                  </div>
+                  <div id="cacheStatus" class="cache-note">Credentials stay local to this browser.</div>
+                </div>
+                <div class="settings-grid">
+                  <label class="setting" title="Choose which backend to use">
+                    <div class="setting-title">
+                      <span>Backend</span>
+                      <span id="backendCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <select id="backendSel">
+                      <option value="">Default</option>
+                      <option value="local">Local (llama.cpp)</option>
+                      <option value="ollama">Ollama</option>
+                      <option value="openai">OpenAI (custom)</option>
+                      <option value="gemini">Google Gemini</option>
+                      <option value="anthropic">Anthropic Claude</option>
+                      <option value="xai">xAI Grok</option>
+                      <option value="openrouter">OpenRouter</option>
+                      <option value="openai_compat">OpenAI-compatible endpoint</option>
+                    </select>
+                  </label>
+                  <label class="setting" id="openaiKeyRow" style="display:none" title="Only used when OpenAI is selected">
+                    <div class="setting-title">
+                      <span>OpenAI key</span>
+                      <span id="openaiKeyCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="password" id="openaiKey" placeholder="sk-..." autocomplete="off" />
+                  </label>
+                  <label class="setting" id="openaiModelRow" style="display:none" title="OpenAI model id (e.g. gpt-4.1-mini)">
+                    <div class="setting-title">
+                      <span>OpenAI model</span>
+                      <span id="openaiModelCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="text" id="openaiModel" placeholder="gpt-4.1-mini" autocomplete="off" />
+                  </label>
+                  <label class="setting" id="geminiKeyRow" style="display:none" title="Only used when Gemini is selected">
+                    <div class="setting-title">
+                      <span>Gemini key</span>
+                      <span id="geminiKeyCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off" />
+                  </label>
+                  <label class="setting" id="geminiModelRow" style="display:none" title="Gemini model id (e.g. gemini-2.0-flash)">
+                    <div class="setting-title">
+                      <span>Gemini model</span>
+                      <span id="geminiModelCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="text" id="geminiModel" placeholder="gemini-2.0-flash" autocomplete="off" />
+                  </label>
+                  <label class="setting" id="anthropicKeyRow" style="display:none" title="Only used when Anthropic is selected">
+                    <div class="setting-title">
+                      <span>Anthropic key</span>
+                      <span id="anthropicKeyCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="password" id="anthropicKey" placeholder="sk-ant-..." autocomplete="off" />
+                  </label>
+                  <label class="setting" id="anthropicModelRow" style="display:none" title="Anthropic model id (e.g. claude-3-5-sonnet-latest)">
+                    <div class="setting-title">
+                      <span>Anthropic model</span>
+                      <span id="anthropicModelCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="text" id="anthropicModel" placeholder="claude-3-5-sonnet-latest" autocomplete="off" />
+                  </label>
+                  <label class="setting" id="xaiKeyRow" style="display:none" title="Only used when xAI is selected">
+                    <div class="setting-title">
+                      <span>xAI key</span>
+                      <span id="xaiKeyCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="password" id="xaiKey" placeholder="xai-..." autocomplete="off" />
+                  </label>
+                  <label class="setting" id="xaiModelRow" style="display:none" title="xAI model id (e.g. grok-2-latest)">
+                    <div class="setting-title">
+                      <span>xAI model</span>
+                      <span id="xaiModelCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="text" id="xaiModel" placeholder="grok-2-latest" autocomplete="off" />
+                  </label>
+                  <label class="setting" id="orKeyRow" style="display:none" title="Only used when OpenRouter is selected">
+                    <div class="setting-title">
+                      <span>OpenRouter key</span>
+                      <span id="openrouterKeyCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="password" id="openrouterKey" placeholder="or-..." autocomplete="off" />
+                  </label>
+                  <label class="setting" id="orModelRow" style="display:none" title="OpenRouter model id (e.g. deepseek/deepseek-coder)">
+                    <div class="setting-title">
+                      <span>OpenRouter model</span>
+                      <span id="openrouterModelCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="text" id="openrouterModel" placeholder="provider/model-name" autocomplete="off" />
+                  </label>
+                  <label class="setting" id="compatBaseRow" style="display:none" title="Base URL to your OpenAI-compatible /chat/completions endpoint">
+                    <div class="setting-title">
+                      <span>Custom base URL</span>
+                      <span id="openaiCompatBaseCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="text" id="openaiCompatBase" placeholder="https://api.example.com/openai/v1" autocomplete="off" />
+                  </label>
+                  <label class="setting" id="compatKeyRow" style="display:none" title="API key for the OpenAI-compatible endpoint">
+                    <div class="setting-title">
+                      <span>Endpoint key</span>
+                      <span id="openaiCompatKeyCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="password" id="openaiCompatKey" placeholder="token..." autocomplete="off" />
+                  </label>
+                  <label class="setting" id="compatModelRow" style="display:none" title="Model identifier expected by the OpenAI-compatible endpoint">
+                    <div class="setting-title">
+                      <span>Endpoint model</span>
+                      <span id="openaiCompatModelCached" class="cache-pill" hidden>cached</span>
+                    </div>
+                    <input type="text" id="openaiCompatModel" placeholder="provider/model" autocomplete="off" />
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-group">
+              <div class="settings-group-title">Response controls</div>
+              <div class="settings-group-body">
+                <div class="settings-grid controls-grid">
+                  <label class="setting slider">
+                    <span>Temperature</span>
+                    <input type="range" id="temp" min="0.1" max="1.0" value="0.3" step="0.05" />
+                    <small>current: <span id="tempVal">0.3</span></small>
+                  </label>
+                  <label class="setting setting-inline" title="Let the model plan before answering (more structured)">
+                    <span>Plan</span>
+                    <input type="checkbox" id="plan" />
+                  </label>
+                  <label class="setting setting-inline" title="Add a quick self-review of the draft">
+                    <span>Self-check</span>
+                    <input type="checkbox" id="selfCheck" />
+                  </label>
+                  <label class="setting setting-inline" title="How many planning iterations">
+                    <span>Plan depth</span>
+                    <input type="number" id="planDepth" min="1" max="4" value="2" />
+                  </label>
+                  <label class="setting setting-inline" title="Stream tokens live">
+                    <span>Stream</span>
+                    <input type="checkbox" id="stream" checked />
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-group">
+              <div class="settings-group-title">Advanced configuration</div>
+              <div class="settings-group-body advanced-stack">
+                <details class="adv-settings"><summary>Advanced generation</summary>
+                  <div class="grid">
+                    <label title="Candidate pool per step; higher = more diverse">Top K <input type="number" id="setTopK" min="1" max="200" placeholder="(model default: 40)" /></label>
+                    <label title="Nucleus sampling; lower = safer, higher = chattier">Top P <input type="number" id="setTopP" min="0" max="1" step="0.01" placeholder="(default: 0.9)" /></label>
+                    <label title="Discourage repetition; 1.0 = off">Repeat penalty <input type="number" id="setRep" min="0" max="2" step="0.01" placeholder="(default: 1.1)" /></label>
+                    <label title="Penalize frequent tokens; 0.0-0.5 typical">Freq penalty <input type="number" id="setFreq" min="-2" max="2" step="0.01" placeholder="(default: 0.0)" /></label>
+                    <label title="How many documents to retrieve before answering">Retrieval Top K <input type="number" id="setRetrK" min="1" max="20" value="5" /></label>
+                    <label title="Maximum context tokens to include in the prompt">Max Context Tokens <input type="number" id="setMaxContextTokens" min="10000" max="12000000" value="3000000" /></label>
+                  </div>
+                  <div class="row"><button id="resetSettingsBtn">Reset to defaults</button></div>
+                  <small>Changes apply to the next message. Content length is capped at <span id="capVal">500000</span> characters.</small>
+                </details>
+                <details class="adv-settings"><summary>assistant policy</summary>
+                  <ul>
+                    <li>cites only internal files (Docs/... or repo_...)</li>
+                    <li>no meta/browsing disclaimers in replies</li>
+                    <li>code-first for make/build/implement prompts</li>
+                    <li>lua fenced blocks (```lua) with highlight</li>
+                  </ul>
+                  <small>api dump: <span id="apiStatus">checking...</span></small>
+                </details>
+                <details class="adv-settings"><summary>UI</summary>
+                  <label class="setting" title="When enabled, annotate only code blocks with tooltips (not prose)">
+                    <span>code-only tooltips</span> <input type="checkbox" id="tooltipsCodeOnly" />
+                  </label>
+                  <label class="setting" title="Show best-practice warnings inline in tooltips (non-blocking)">
+                    <span>Best Practice Mode</span> <input type="checkbox" id="bestPractice" />
+                  </label>
+                </details>
+                <small class="credit-note">
+                  made by <span class="credit-author">im.notalex</span> -
+                  <a href="https://boogerboys.github.io/alex/clickme.html" target="_blank" rel="noreferrer noopener">my site.</a>
+                </small>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer drawer-wide" id="docsDrawer" aria-hidden="true">
+      <div class="drawer-overlay" data-close="docsDrawer"></div>
+      <div class="drawer-surface">
+        <div class="drawer-head">
+          <span>Docs &amp; tooltips</span>
+          <button type="button" class="icon-btn close-btn" data-close="docsDrawer">Close</button>
+        </div>
+        <div class="drawer-body docs" id="docsPane">
+          <div class="preview-title">Docs Viewer</div>
+          <div class="tt-lookup">
+            <div class="section-title">Tooltip Lookup</div>
+            <input id="ttSearch" class="tt-search" placeholder="search tooltips (services, classes, functions, enums, properties). use ! to list all" />
+            <div id="ttResults" class="tt-results"></div>
+            <div id="ttDetail" class="tt-detail"></div>
+          </div>
+          <input id="docSearch" class="doc-search" placeholder="filter files..." />
+          <div class="row">
+            <button id="docsExpandAll">expand all</button>
+            <button id="docsCollapseAll">collapse all</button>
+          </div>
+          <div id="docsList" class="docs-list"></div>
+          <div class="row">
+            <button id="pinBtn">Pin selected</button>
+            <button id="clearPinBtn">Clear pins</button>
+            <span id="pinStatus"></span>
+          </div>
+          <label class="setting" title="When enabled, only pinned docs are provided to the model (no retrieved context)"><span>Pins only</span> <input type="checkbox" id="pinsOnly" /></label>
+          <div id="pinList" class="pin-list"></div>
+          <div id="docView" class="docs-view"></div>
+        </div>
+      </div>
+    </div>
+
+<!-- psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/lua.min.js"></script>
+    <script>hljs.configure({ignoreUnescapedHTML: true});</script>
+    <script src="app2.js"></script>
+  </body>
+</html>

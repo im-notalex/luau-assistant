@@ -40,4 +40,3 @@ models/*.safetensors
 # Data
 Docs/
 models/
-ui/

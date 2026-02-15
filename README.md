@@ -1,5 +1,7 @@
 # LuaU RAG Assistant
 
+Version: `v2.4.2`
+
 Local-first RAG assistant for Roblox LuaU development. It indexes docs under `Docs/` and serves a web UI for chat, retrieval, and API lookup.
 
 ## Requirements
