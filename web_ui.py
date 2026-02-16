@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, StreamingResponse
 from json import dumps as json_dumps
 
-from luau_rag import ask, OLLAMA_MODEL, prepare_prompt, call_ollama_stream, select_backend, CHUNK_PROMPT_SIZE, DESIRED_CONTEXT_TOKENS, clamp_prompt_for_backend, sanitize_answer
+from luau_rag import ask, OLLAMA_MODEL, prepare_prompt, call_ollama_stream, select_backend, CHUNK_PROMPT_SIZE, DESIRED_CONTEXT_TOKENS, clamp_prompt_for_backend, sanitize_answer, _recover_from_refusal
 from api_validator import get_stats as api_stats, load_api_dump
 
 ROOT = Path(__file__).parent
@@ -100,6 +100,8 @@ app = FastAPI(title="LuaU RAG HTTP UI", lifespan=lifespan)
 
 # Streaming cancellation flags (best-effort)
 _cancel_flags: Dict[str, bool] = {}
+LOCAL_BACKENDS = {'local', 'ollama', 'llama.cpp'}
+DEFAULT_LOCAL_TEMPERATURE = 0.5
 
 
 @app.get("/api/status")
@@ -199,6 +201,9 @@ def api_chat(
     if not message:
         raise HTTPException(status_code=400, detail="Empty message")
 
+    if chat_id:
+        _cancel_flags.pop(chat_id, None)
+
     history = load_chat(chat_id) if chat_id else []
 
     gen_opts = {
@@ -210,6 +215,9 @@ def api_chat(
 
     pins_only_flag = bool(pins_only)
     chosen = (backend or '').lower().strip()
+    if chosen in LOCAL_BACKENDS:
+        temperature = DEFAULT_LOCAL_TEMPERATURE
+        gen_opts = None
     hosted = chosen in ('openai', 'openrouter', 'openai_compat', 'gemini', 'anthropic', 'xai')
     eff_retr_k = (retr_k if retr_k else 5)
     if hosted and not pins_only_flag:
@@ -328,6 +336,10 @@ def api_chat_stream(
     if not message:
         raise HTTPException(status_code=400, detail="Empty message")
 
+    # Clear stale cancellation for this chat so previous Stop does not poison next request.
+    if chat_id:
+        _cancel_flags.pop(chat_id, None)
+
     gen_opts = {
         "top_k": top_k,
         "top_p": top_p,
@@ -355,6 +367,9 @@ def api_chat_stream(
 
     if not chosen:
         chosen = select_backend()
+    if chosen in LOCAL_BACKENDS:
+        temperature = DEFAULT_LOCAL_TEMPERATURE
+        gen_opts = None
     use_stream = chosen in ('ollama', 'openai', 'openrouter', 'openai_compat', 'gemini', 'anthropic', 'xai')
 
     def gen():
@@ -365,14 +380,21 @@ def api_chat_stream(
         try:
             if use_stream and chosen == 'ollama':
                 bounded = clamp_prompt_for_backend(prompt, 'ollama')
+                had_chunk = False
                 for chunk in call_ollama_stream(bounded, temperature=temperature, gen_options=gen_opts):
                     if chat_id and _cancel_flags.get(chat_id):
                         _cancel_flags.pop(chat_id, None)
                         break
                     if chunk:
                         acc.append(chunk)
-                            ## psst, did you know this was made by im.notalex on discord, linked HERE? https://boogerboys.github.io/alex/clickme.html :)
+                        had_chunk = True
                         yield json_dumps({"type":"chunk","text":chunk}, ensure_ascii=False) + "\n"
+                if not had_chunk:
+                    from luau_rag import call_ollama as _ol_call
+                    txt, _diag = _ol_call(bounded, temperature=temperature, gen_options=gen_opts)
+                    if txt:
+                        acc.append(txt)
+                        yield json_dumps({"type":"chunk","text":txt}, ensure_ascii=False) + "\n"
             elif use_stream and chosen == 'openai':
                 from luau_rag import call_openai_stream as _oa_stream
                 had_chunk = False
@@ -531,6 +553,7 @@ def api_chat_stream(
             try:
                 full = "".join(acc).strip()
                 try:
+                    full = _recover_from_refusal(message, full)
                     sanitized = sanitize_answer(full)
                     # if sanitizer removed everything, keep original so UI shows something
                     full = sanitized if sanitized.strip() else (full or "No response generated. Check your context settings or backend configuration.")

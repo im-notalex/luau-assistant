@@ -1009,6 +1009,45 @@ function updatePinsUI() {
 })();
 
 // ---------- Tooltips ----------
+const EXTRA_TOOLTIP_ENTRIES = {
+  StarterPlayerScripts: {
+    category: "service",
+    summary: "Container under StarterPlayer for LocalScripts copied to each player.",
+    usage: "Place client LocalScripts here.",
+    tip: "Use this for client-only visuals/input; use ServerScriptService for server authority.",
+  },
+  StarterCharacterScripts: {
+    category: "service",
+    summary: "Scripts copied into each character model when it spawns.",
+    usage: "Character-bound LocalScripts and Scripts.",
+    tip: "Prefer this for per-character logic that must respawn with character.",
+  },
+  StarterGui: {
+    category: "service",
+    summary: "Template GUI container replicated to each player's PlayerGui.",
+    usage: "Place ScreenGuis here.",
+    tip: "Access runtime GUIs from Players.LocalPlayer.PlayerGui.",
+  },
+  ReplicatedStorage: {
+    category: "service",
+    summary: "Shared storage replicated to client and server.",
+    usage: "Put shared modules/assets/remotes here.",
+    tip: "Do not store secrets here; clients can read it.",
+  },
+  ServerScriptService: {
+    category: "service",
+    summary: "Server-only script container.",
+    usage: "Authoritative game logic.",
+    tip: "Keep anti-cheat and data logic here.",
+  },
+  Workspace: {
+    category: "service",
+    summary: "3D world container.",
+    usage: "Parts, models, and physical simulation objects.",
+    tip: "Use as runtime scene graph, not persistent config storage.",
+  },
+};
+
 const TOOLTIP_ICONS = {
   service: "🏢",
   class: "📦",
@@ -1159,6 +1198,28 @@ async function loadTooltips() {
         state.tooltipLookup[key] = entry;
       });
     });
+    Object.entries(EXTRA_TOOLTIP_ENTRIES).forEach(([key, info]) => {
+      const lower = key.toLowerCase();
+      if (state.tooltipLookup[lower]) return;
+      const entry = {
+        key,
+        lower,
+        display: key,
+        meta: {
+          summary: info.summary || "",
+          usage: info.usage || "",
+          tip: info.tip || "",
+          notes: Array.isArray(info.notes) ? info.notes : [],
+        },
+        category: info.category || "service",
+        icon: TOOLTIP_ICONS[info.category || "service"] || "",
+      };
+      state.tooltipKeys.push(key);
+      state.tooltipCache.push({ key, lower, category: entry.category });
+      state.tooltipLookup[lower] = entry;
+      state.tooltipLookup[key] = entry;
+    });
+
     state.tooltipRegex = null; // rebuild on demand
   } catch (_) {
     state.tooltips = {};
@@ -1178,7 +1239,8 @@ function buildTooltipRegex() {
     .map((entry) => escapeRegex(entry.key))
     .sort((a, b) => b.length - a.length)
     .join("|");
-  state.tooltipRegex = pattern ? new RegExp(pattern, "gi") : null;
+  // Identifier boundaries prevent splitting composite names into smaller tokens.
+  state.tooltipRegex = pattern ? new RegExp(`(?<![A-Za-z0-9_])(${pattern})(?![A-Za-z0-9_])`, "gi") : null;
 }
 
 function annotateTooltips(root) {
@@ -1220,45 +1282,36 @@ function annotateElement(element) {
 
 function processTextNode(textNode) {
   const original = textNode.nodeValue;
-  const lower = original.toLowerCase();
+  if (!original || !state.tooltipRegex) return;
+
   const matches = [];
-  state.tooltipCache.forEach(({ key, lower: lowerKey }) => {
-    let index = lower.indexOf(lowerKey);
-    while (index !== -1) {
-      matches.push({ start: index, end: index + key.length, key });
-      index = lower.indexOf(lowerKey, index + key.length);
-    }
-  });
+  let match;
+  state.tooltipRegex.lastIndex = 0;
+  while ((match = state.tooltipRegex.exec(original)) !== null) {
+    const token = match[1] || match[0];
+    const entry = resolveTooltipEntry(token);
+    if (!entry) continue;
+    matches.push({ start: match.index, end: match.index + token.length, key: entry.key, token });
+  }
   if (!matches.length) return;
-  matches.sort((a, b) => a.start - b.start || b.end - a.end);
-  const filtered = [];
-  let lastEnd = -1;
-  matches.forEach((match) => {
-    if (match.start >= lastEnd) {
-      filtered.push(match);
-      lastEnd = match.end;
-    }
-  });
-  if (!filtered.length) return;
+
   const frag = document.createDocumentFragment();
   let cursor = 0;
-  filtered.forEach((match) => {
-    if (match.start > cursor) {
-      frag.appendChild(document.createTextNode(original.slice(cursor, match.start)));
-    }
+  matches.forEach((m) => {
+    if (m.start > cursor) frag.appendChild(document.createTextNode(original.slice(cursor, m.start)));
     const span = create("span", "tt-target");
-    span.textContent = original.slice(match.start, match.end);
-    span.dataset.ttKey = match.key;
-    const entry = resolveTooltipEntry(match.key);
+    span.textContent = original.slice(m.start, m.end);
+    span.dataset.ttKey = m.key;
+    span.tabIndex = 0;
+    const entry = resolveTooltipEntry(m.key);
     if (entry?.category) span.dataset.ttCategory = entry.category;
     frag.appendChild(span);
-    cursor = match.end;
+    cursor = m.end;
   });
-  if (cursor < original.length) {
-    frag.appendChild(document.createTextNode(original.slice(cursor)));
-  }
+  if (cursor < original.length) frag.appendChild(document.createTextNode(original.slice(cursor)));
   textNode.parentNode.replaceChild(frag, textNode);
 }
+
 
 function renderTooltipResults(query) {
   const container = $("ttResults");
@@ -1344,6 +1397,49 @@ function reannotateAll() {
   annotateTooltips($("docView"));
 }
 
+function tooltipTargetsInView() {
+  const roots = [$("chat"), $("docView"), $("ttResults")].filter(Boolean);
+  return roots.flatMap((root) => Array.from(root.querySelectorAll(".tt-target"))).filter((el) => el.offsetParent !== null);
+}
+
+function initTooltipKeyboardNav() {
+  document.addEventListener("focusin", (event) => {
+    const target = event.target?.closest?.(".tt-target");
+    if (!target) return;
+    const key = target.dataset.ttKey;
+    if (!key) return;
+    state.tooltipPanelAnchor = target;
+    showTooltipPanel(key, target);
+    const rect = target.getBoundingClientRect();
+    positionTooltipPanel(rect.left + rect.width / 2, rect.bottom + 8);
+  });
+
+  document.addEventListener("focusout", (event) => {
+    const from = event.target?.closest?.(".tt-target");
+    if (!from) return;
+    const to = event.relatedTarget?.closest?.(".tt-target");
+    if (!to) hideTooltipPanel();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey) return;
+    const tag = (event.target?.tagName || "").toLowerCase();
+    if (["input", "textarea", "select", "button"].includes(tag) || event.target?.isContentEditable) return;
+
+    const targets = tooltipTargetsInView();
+    if (!targets.length) return;
+
+    const active = document.activeElement;
+    const idx = targets.indexOf(active);
+    const next = event.shiftKey
+      ? (idx <= 0 ? targets.length - 1 : idx - 1)
+      : (idx >= targets.length - 1 ? 0 : idx + 1);
+
+    event.preventDefault();
+    targets[next].focus();
+  });
+}
+
 // ---------- Event Wiring ----------
 function attachHandlers() {
   $("newChatBtn")?.addEventListener("click", startNewChat);
@@ -1385,6 +1481,7 @@ function attachHandlers() {
   $("backendSel")?.addEventListener("change", updateBackendVisibility);
   setupCacheListeners();
   bindDrawerTriggers();
+  initTooltipKeyboardNav();
   updateBackendVisibility();
 }
 
